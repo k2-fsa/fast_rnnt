@@ -29,8 +29,25 @@ torch_discounted_cumsum = load(
 #         return d_input, d_weights, d_bias, d_old_h, d_old_cell
 
 
+def discounted_cumsum_left(input, gamma):
+    return torch_discounted_cumsum.discounted_cumsum_left(input, gamma)
+
+
 def discounted_cumsum_right(input, gamma):
     return torch_discounted_cumsum.discounted_cumsum_right(input, gamma)
+
+
+def discounted_cumsum_left_gold(input, gamma):
+    assert input.dim() == 2
+    assert 0 <= gamma <= 1
+    out = []
+    last_col = torch.zeros((input.shape[0], 1), dtype=input.dtype, device=input.device)
+    for i in range(input.shape[1]):
+        cur_col = input[:, i].unsqueeze(-1)
+        last_col = cur_col + gamma * last_col
+        out.append(last_col)
+    out = torch.cat(out, dim=1)
+    return out
 
 
 def discounted_cumsum_right_gold(input, gamma):
@@ -46,7 +63,20 @@ def discounted_cumsum_right_gold(input, gamma):
     return out
 
 
-def test():
+def test_left():
+    torch.manual_seed(0)
+    x = torch.full((10, 10000), fill_value=1.0, dtype=torch.float32).cuda()
+    gamma = 0.99
+    out_gold_32 = discounted_cumsum_left_gold(x, gamma)
+    out_gold_64 = discounted_cumsum_left_gold(x.double(), gamma)
+    out_fn = discounted_cumsum_left(x, gamma)
+    diff_32 = (out_fn - out_gold_32).abs().max().item()
+    diff_64 = (out_fn - out_gold_64).abs().max().item()
+    print('left diff_32', diff_32)
+    print('left diff_64', diff_64)
+
+
+def test_right():
     torch.manual_seed(0)
     x = torch.full((10, 10000), fill_value=1.0, dtype=torch.float32).cuda()
     gamma = 0.99
@@ -55,8 +85,8 @@ def test():
     out_fn = discounted_cumsum_right(x, gamma)
     diff_32 = (out_fn - out_gold_32).abs().max().item()
     diff_64 = (out_fn - out_gold_64).abs().max().item()
-    print('diff_32', diff_32)
-    print('diff_64', diff_64)
+    print('right diff_32', diff_32)
+    print('right diff_64', diff_64)
 
 
 def test_speed(reps=10000):
@@ -71,5 +101,6 @@ def test_speed(reps=10000):
 
 
 if __name__ == '__main__':
-    test()
-    test_speed()
+    test_left()
+    test_right()
+    #test_speed()
