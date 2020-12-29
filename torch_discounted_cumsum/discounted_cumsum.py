@@ -72,7 +72,7 @@ class DiscountedCumSumLeftFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        gamma = ctx.saved_variables[0].item()
+        gamma = ctx.saved_tensors[0].item()
         grad_input = _discounted_cumsum_right_dispatcher(grad_output, gamma)
         return grad_input, None
 
@@ -86,7 +86,7 @@ class DiscountedCumSumRightFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        gamma = ctx.saved_variables[0].item()
+        gamma = ctx.saved_tensors[0].item()
         grad_input = _discounted_cumsum_left_dispatcher(grad_output, gamma)
         return grad_input, None
 

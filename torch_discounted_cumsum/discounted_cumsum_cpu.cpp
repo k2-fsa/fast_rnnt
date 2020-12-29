@@ -26,7 +26,7 @@ torch::Tensor discounted_cumsum_left_cpu(torch::Tensor x, double gamma) {
         auto ya = y.accessor<scalar_t, 2>();
         for (int j=0; j<y.size(1); j++) {
             int j_left = j-1;
-            if (j_left == 0) {
+            if (j_left == -1) {
                 continue;
             }
             discounted_sum_update(ya, y.size(0), gamma, j, j_left);
@@ -47,7 +47,7 @@ torch::Tensor discounted_cumsum_right_cpu(torch::Tensor x, double gamma) {
         auto ya = y.accessor<scalar_t, 2>();
         for (int j=y.size(1)-1; j>=0; j--) {
             int j_right = j+1;
-            if (j_right == 0) {
+            if (j_right == y.size(1)) {
                 continue;
             }
             discounted_sum_update(ya, y.size(0), gamma, j, j_right);
