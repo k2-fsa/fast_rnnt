@@ -1,13 +1,6 @@
 #include <torch/extension.h>
 
 
-template <typename scalar_t>
-__device__ __forceinline__
-scalar_t discounted_sum_power(scalar_t a, scalar_t b, scalar_t gamma, int power) {
-    return a + b * pow(gamma, scalar_t(power));
-}
-
-
 enum SumDirection {
     SUM_DIRECTION_LEFT,
     SUM_DIRECTION_RIGHT,
@@ -43,6 +36,13 @@ void resolve_positions<SUM_DIRECTION_RIGHT>(
     change_pos = group_of_thread * stride_cur_group + thread_in_group;
     discounted_pos = group_of_thread * stride_cur_group + stride_prev_group;
     discount_power = stride_prev_group - thread_in_group;
+}
+
+
+template <typename scalar_t>
+__device__ __forceinline__
+scalar_t discounted_sum_power(scalar_t a, scalar_t b, scalar_t gamma, int power) {
+    return a + b * pow(gamma, scalar_t(power));
 }
 
 
@@ -97,7 +97,7 @@ torch::Tensor discounted_cumsum(torch::Tensor x, double gamma) {
     // Minimum required number of threads, assigns them dynamically to respective positions upon each iteration.
     // Results in uncoalesced writes, which is still faster than coalesced writes with half threads idling.
 
-    TORCH_CHECK(x.type().is_cuda(), "Input must be a CUDA tensor");
+    TORCH_CHECK(x.device().is_cuda(), "Input must be a CUDA tensor");
     TORCH_CHECK(x.is_contiguous(), "Input must be contiguous");
     TORCH_CHECK(x.dim() == 2, "Input must be 2-dimensional");
     TORCH_CHECK(0.0 <= gamma && gamma <= 1.0, "Gamma must be in the range [0,1]");
@@ -114,7 +114,7 @@ torch::Tensor discounted_cumsum(torch::Tensor x, double gamma) {
     const dim3 blocks((threads_total_x + threads - 1) / threads, x.size(0));
 
     for (int stage=0; stage<nstages; stage++) {
-        AT_DISPATCH_FLOATING_TYPES(x.type(), "discounted_cumsum_kernel_stage", ([&] {
+        AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "discounted_cumsum_kernel_stage", ([&] {
             discounted_cumsum_kernel_stage<scalar_t, sum_direction><<<blocks, threads>>>(
                 y.packed_accessor32<scalar_t, 2>(),
                 scalar_t(gamma),
@@ -127,11 +127,11 @@ torch::Tensor discounted_cumsum(torch::Tensor x, double gamma) {
 }
 
 
-torch::Tensor discounted_cumsum_left(torch::Tensor x, double gamma) {
+torch::Tensor discounted_cumsum_left_cuda(torch::Tensor x, double gamma) {
     return discounted_cumsum<SUM_DIRECTION_LEFT>(x, gamma);
 }
 
 
-torch::Tensor discounted_cumsum_right(torch::Tensor x, double gamma) {
+torch::Tensor discounted_cumsum_right_cuda(torch::Tensor x, double gamma) {
     return discounted_cumsum<SUM_DIRECTION_RIGHT>(x, gamma);
 }

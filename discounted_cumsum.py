@@ -1,106 +1,75 @@
-import time
-
 import torch
 from torch.utils.cpp_extension import load
 
 
-torch_discounted_cumsum = load(
-    name='torch_discounted_cumsum',
-    sources=['discounted_cumsum.cpp', 'discounted_cumsum_kernel.cu'],
-    verbose=True,
+torch_discounted_cumsum_cpu = load(
+    name='torch_discounted_cumsum_cpu',
+    sources=['discounted_cumsum_cpu.cpp'],
+    # verbose=True,
 )
 
+torch_discounted_cumsum_cuda = None
+if torch.cuda.is_available():
+    torch_discounted_cumsum_cuda = load(
+        name='torch_discounted_cumsum_cuda',
+        sources=['discounted_cumsum_cuda.cpp', 'discounted_cumsum_cuda_kernel.cu'],
+        verbose=True,
+    )
 
-# class DiscountedCumSumFunction(torch.autograd.Function):
-#     @staticmethod
-#     def forward(ctx, input, weights, bias, old_h, old_cell):
-#         outputs = torch_discounted_cumsum.forward(input, weights, bias, old_h, old_cell)
-#         new_h, new_cell = outputs[:2]
-#         variables = outputs[1:] + [weights]
-#         ctx.save_for_backward(*variables)
-#
-#         return new_h, new_cell
-#
-#     @staticmethod
-#     def backward(ctx, grad_h, grad_cell):
-#         outputs = torch_discounted_cumsum.backward(
-#             grad_h.contiguous(), grad_cell.contiguous(), *ctx.saved_variables)
-#         d_old_h, d_input, d_weights, d_bias, d_old_cell = outputs
-#         return d_input, d_weights, d_bias, d_old_h, d_old_cell
+
+def _discounted_cumsum_left_dispatcher(input, gamma):
+    if not torch.is_tensor(input):
+        raise ValueError('Input must be a torch.Tensor')
+    if input.is_cuda:
+        if torch_discounted_cumsum_cuda is None:
+            raise EnvironmentError(f'Failed to load native CUDA module')
+        return torch_discounted_cumsum_cuda.discounted_cumsum_left_cuda(input.contiguous(), gamma)
+    else:
+        return torch_discounted_cumsum_cpu.discounted_cumsum_left_cpu(input, gamma)
+
+
+def _discounted_cumsum_right_dispatcher(input, gamma):
+    if not torch.is_tensor(input):
+        raise ValueError('Input must be a torch.Tensor')
+    if input.is_cuda:
+        if torch_discounted_cumsum_cuda is None:
+            raise EnvironmentError(f'Failed to load native CUDA module')
+        return torch_discounted_cumsum_cuda.discounted_cumsum_right_cuda(input.contiguous(), gamma)
+    else:
+        return torch_discounted_cumsum_cpu.discounted_cumsum_right_cpu(input, gamma)
+
+
+class DiscountedCumSumLeftFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, gamma):
+        output = _discounted_cumsum_left_dispatcher(input, gamma)
+        ctx.save_for_backward(torch.tensor(gamma))
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        gamma = ctx.saved_variables[0].item()
+        grad_input = _discounted_cumsum_right_dispatcher(grad_output, gamma)
+        return grad_input, None
+
+
+class DiscountedCumSumRightFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, gamma):
+        output = _discounted_cumsum_right_dispatcher(input, gamma)
+        ctx.save_for_backward(torch.tensor(gamma))
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        gamma = ctx.saved_variables[0].item()
+        grad_input = _discounted_cumsum_left_dispatcher(grad_output, gamma)
+        return grad_input, None
 
 
 def discounted_cumsum_left(input, gamma):
-    return torch_discounted_cumsum.discounted_cumsum_left(input, gamma)
+    return DiscountedCumSumLeftFunction.apply(input, gamma)
 
 
 def discounted_cumsum_right(input, gamma):
-    return torch_discounted_cumsum.discounted_cumsum_right(input, gamma)
-
-
-def discounted_cumsum_left_gold(input, gamma):
-    assert input.dim() == 2
-    assert 0 <= gamma <= 1
-    out = []
-    last_col = torch.zeros((input.shape[0], 1), dtype=input.dtype, device=input.device)
-    for i in range(input.shape[1]):
-        cur_col = input[:, i].unsqueeze(-1)
-        last_col = cur_col + gamma * last_col
-        out.append(last_col)
-    out = torch.cat(out, dim=1)
-    return out
-
-
-def discounted_cumsum_right_gold(input, gamma):
-    assert input.dim() == 2
-    assert 0 <= gamma <= 1
-    out = []
-    last_col = torch.zeros((input.shape[0], 1), dtype=input.dtype, device=input.device)
-    for i in reversed(range(input.shape[1])):
-        cur_col = input[:, i].unsqueeze(-1)
-        last_col = cur_col + gamma * last_col
-        out.insert(0, last_col)
-    out = torch.cat(out, dim=1)
-    return out
-
-
-def test_left():
-    torch.manual_seed(0)
-    x = torch.full((10, 10000), fill_value=1.0, dtype=torch.float32).cuda()
-    gamma = 0.99
-    out_gold_32 = discounted_cumsum_left_gold(x, gamma)
-    out_gold_64 = discounted_cumsum_left_gold(x.double(), gamma)
-    out_fn = discounted_cumsum_left(x, gamma)
-    diff_32 = (out_fn - out_gold_32).abs().max().item()
-    diff_64 = (out_fn - out_gold_64).abs().max().item()
-    print('left diff_32', diff_32)
-    print('left diff_64', diff_64)
-
-
-def test_right():
-    torch.manual_seed(0)
-    x = torch.full((10, 10000), fill_value=1.0, dtype=torch.float32).cuda()
-    gamma = 0.99
-    out_gold_32 = discounted_cumsum_right_gold(x, gamma)
-    out_gold_64 = discounted_cumsum_right_gold(x.double(), gamma)
-    out_fn = discounted_cumsum_right(x, gamma)
-    diff_32 = (out_fn - out_gold_32).abs().max().item()
-    diff_64 = (out_fn - out_gold_64).abs().max().item()
-    print('right diff_32', diff_32)
-    print('right diff_64', diff_64)
-
-
-def test_speed(reps=10000):
-    torch.manual_seed(0)
-    x = torch.randn(10, 100000, dtype=torch.float32).cuda()
-    gamma = 0.99
-    t1 = time.time()
-    for _ in range(reps):
-        discounted_cumsum_right(x, gamma)
-    t2 = time.time()
-    print('sec:', t2-t1)
-
-
-if __name__ == '__main__':
-    test_left()
-    test_right()
-    #test_speed()
+    return DiscountedCumSumRightFunction.apply(input, gamma)
