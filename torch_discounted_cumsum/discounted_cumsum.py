@@ -1,20 +1,44 @@
+import os
+
 import torch
 from torch.utils.cpp_extension import load
 
+VERBOSE = False
 
-torch_discounted_cumsum_cpu = load(
-    name='torch_discounted_cumsum_cpu',
-    sources=['discounted_cumsum_cpu.cpp'],
-    # verbose=True,
-)
 
-torch_discounted_cumsum_cuda = None
-if torch.cuda.is_available():
-    torch_discounted_cumsum_cuda = load(
-        name='torch_discounted_cumsum_cuda',
-        sources=['discounted_cumsum_cuda.cpp', 'discounted_cumsum_cuda_kernel.cu'],
-        verbose=True,
+def _resolve(name):
+    return os.path.join(os.path.dirname(os.path.realpath(__file__)), name)
+
+
+try:
+    import torch_discounted_cumsum_cpu
+except ImportError:
+    if VERBOSE:
+        print('Falling back to JIT compiling torch_discounted_cumsum_cpu')
+    torch_discounted_cumsum_cpu = load(
+        name='torch_discounted_cumsum_cpu',
+        sources=[
+            _resolve('discounted_cumsum_cpu.cpp'),
+        ],
+        verbose=VERBOSE,
     )
+
+
+try:
+    import torch_discounted_cumsum_cuda
+except ImportError:
+    if VERBOSE:
+        print('Falling back to JIT compiling torch_discounted_cumsum_cuda')
+    torch_discounted_cumsum_cuda = None
+    if torch.cuda.is_available():
+        torch_discounted_cumsum_cuda = load(
+            name='torch_discounted_cumsum_cuda',
+            sources=[
+                _resolve('discounted_cumsum_cuda.cpp'),
+                _resolve('discounted_cumsum_cuda_kernel.cu'),
+            ],
+            verbose=VERBOSE,
+        )
 
 
 def _discounted_cumsum_left_dispatcher(input, gamma):

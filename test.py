@@ -1,7 +1,7 @@
 import time
 import torch
 
-from discounted_cumsum import discounted_cumsum_left, discounted_cumsum_right
+from torch_discounted_cumsum import discounted_cumsum_left, discounted_cumsum_right
 
 
 def discounted_cumsum_left_gold(input, gamma):
