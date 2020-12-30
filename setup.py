@@ -10,8 +10,8 @@ with open('requirements.txt') as f:
 
 setup(
     name='torch_discounted_cumsum',
-    version=0.1,
-    description='Fast discounted cumulative sum in PyTorch',
+    version='1.0.0',
+    description='Fast discounted cumulative sums in PyTorch',
     install_requires=requirements,
     python_requires='>=3.6',
     packages=find_packages(),

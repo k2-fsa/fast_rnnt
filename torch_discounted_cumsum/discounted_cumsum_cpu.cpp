@@ -59,6 +59,6 @@ torch::Tensor discounted_cumsum_right_cpu(torch::Tensor x, double gamma) {
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("discounted_cumsum_left_cpu", &discounted_cumsum_left_cpu, "Discounted Cumulative Sum CPU (Left)");
-    m.def("discounted_cumsum_right_cpu", &discounted_cumsum_right_cpu, "Discounted Cumulative Sum CPU (Right)");
+    m.def("discounted_cumsum_left_cpu", &discounted_cumsum_left_cpu, "Discounted Cumulative Sums CPU (Left)");
+    m.def("discounted_cumsum_right_cpu", &discounted_cumsum_right_cpu, "Discounted Cumulative Sums CPU (Right)");
 }

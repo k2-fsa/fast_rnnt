@@ -56,7 +56,7 @@ def discounted_cumsum_gold(x, gamma, dir):
     }[dir](x, gamma)
 
 
-def compute_linf(batchsz, veclen, dir, gamma=0.99, dtype=torch.float32, cuda=False, data='randn', tol=1e-3, seed=2020):
+def compute_linf(batchsz, veclen, dir, gamma=0.99, dtype=torch.float32, cuda=False, data='randn', tol=1e-3, seed=2021):
     torch.manual_seed(seed)
     if data == 'randn':
         x = torch.randn((batchsz, veclen), dtype=dtype)
@@ -91,7 +91,7 @@ class TestDiscountedCumSum(unittest.TestCase):
             if cuda and not is_cuda:
                 print('Skipping validity CUDA tests')
                 continue
-            rng = random.Random(2020)
+            rng = random.Random(2021)
             with tqdm(total=2*2*2*17) as pbar:
                 for data in ('ones', 'randn'):
                     for dtype in (torch.float32, torch.float64):
@@ -128,7 +128,7 @@ class TestDiscountedCumSum(unittest.TestCase):
                 precision_factor = 2.0
             else:
                 precision_factor = 1.1
-            torch.manual_seed(2020)
+            torch.manual_seed(2021)
             if data == 'randn':
                 x_32 = torch.randn((batchsz, veclen), dtype=torch.float32)
             elif data == 'ones':
