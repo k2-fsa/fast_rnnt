@@ -133,7 +133,7 @@ The observed speed-ups are as follows:
 - PyTorch to CUDA: 36573 times
 - C++ to CUDA: 94 times
 
-## Details on Ops-Space-Time Complexity
+## Ops-Space-Time Complexity
   
 Assumptions:
 - A fused operation of raising `gamma` to a power, multiplying the result by `x`, and adding `y` is counted as a 
