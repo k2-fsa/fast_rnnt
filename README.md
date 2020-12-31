@@ -1,10 +1,11 @@
 # Fast Discounted Cumulative Sums in PyTorch
+
+![Fast Discounted Cumulative Sums in PyTorch](doc/img/logo_small.png)
+
 [![PyPiVersion](https://badge.fury.io/py/torch-discounted-cumsum.svg)](https://pypi.org/project/torch-discounted-cumsum/)
 ![PythonVersion](https://img.shields.io/badge/python-%3E%3D3.6-yellowgreen)
 [![PyPiDownloads](https://pepy.tech/badge/torch-discounted-cumsum)](https://pepy.tech/project/torch-discounted-cumsum)
 ![License](https://img.shields.io/pypi/l/torch-discounted-cumsum)
-
-![Fast Discounted Cumulative Sums in PyTorch](doc/img/logo_small.png)
 
 This repository implements an efficient parallel algorithm for the computation of discounted cumulative sums 
 and a Python package with differentiable bindings to PyTorch. The `cumsum` operation is frequently seen in data science 
