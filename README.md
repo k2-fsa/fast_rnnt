@@ -8,13 +8,13 @@
 ![License](https://img.shields.io/pypi/l/torch-discounted-cumsum)
 
 This repository implements an efficient parallel algorithm for the computation of discounted cumulative sums 
-and a Python package with differentiable bindings to PyTorch. The `cumsum` operation is frequently seen in data science 
-domains concerned with time series, including Reinforcement Learning (RL). 
+and a Python package with differentiable bindings to PyTorch. The discounted `cumsum` operation is frequently seen in 
+data science domains concerned with time series, including Reinforcement Learning (RL). 
 
 The traditional sequential algorithm performs the computation of the output elements in a loop. For an input of size 
 `N`, it requires `O(N)` operations and takes `O(N)` time steps to complete. 
 
-The proposed parallel algorithm requires a total of `O(N log N)` operations, but takes only `O(log N)` time, which is a 
+The proposed parallel algorithm requires a total of `O(N log N)` operations, but takes only `O(log N)` time steps, which is a 
 considerable trade-off in many applications involving large inputs.  
 
 Features of the parallel algorithm:
@@ -71,8 +71,8 @@ N = 8
 K = 2
 gamma = 0.99
 x = torch.ones(1, N).cuda()
-y_inf = discounted_cumsum_right(x, gamma)
-y_K = y_inf - (gamma ** K) * torch.cat((y_inf[:, K:], torch.zeros(1, K).cuda()), dim=1)   
+y_N = discounted_cumsum_right(x, gamma)
+y_K = y_N - (gamma ** K) * torch.cat((y_N[:, K:], torch.zeros(1, K).cuda()), dim=1)   
 
 print(y_K)
 ```
@@ -87,16 +87,17 @@ tensor([[1.9900, 1.9900, 1.9900, 1.9900, 1.9900, 1.9900, 1.9900, 1.0000]],
 ## Parallel Algorithm
 
 For the sake of simplicity, the algorithm is explained for `N=16`. 
-The processing is performed in-place in the input vector in `log2 N` stages. Each stage updates `N / 2` positions. Each 
-stage is characterized by the size of the group of sequential elements being updated, which is computed as `2 ** stage`. 
+The processing is performed in-place in the input vector in `log2 N` stages. Each stage updates `N / 2` positions in parallel 
+(that is, in a single time step, provided unrestricted parallelism). A stage is characterized by the size of the group of 
+sequential elements being updated, which is computed as `2 ^ (stage - 1)`. 
 The group stride is always twice larger than the group size. The elements updated during the stage are highlighted with 
-the respective stage color in the figure below. Here input elements are denoted with their position id in hex, and 
-2-symbols updated elements indicate the range of indices over which the discounted partial sum has been computed.
+the respective stage color in the figure below. Here input elements are denoted with their position id in hex, and the 
+elements tagged with two symbols indicate the range over which the discounted partial sum is computed upon stage completion.
 
 Each element update includes an in-place addition of a discounted element, which follows the last 
 updated element in the group. The discount factor is computed as gamma raised to the power of the distance between the 
-updated and the discounted elements. In the figure below, this operation is denoted with slanted arrows with a greek 
-gamma tag. After the last stage finishes, the output is written in place of the input. 
+updated and the discounted elements. In the figure below, this operation is denoted with tilted arrows with a greek 
+gamma tag. After the last stage completes, the output is written in place of the input. 
 
 ![Parallel Algorithm](doc/img/algorithm.png)
 
@@ -112,7 +113,7 @@ reversed direction of summation.
 The parallel algorithm produces a more numerically-stable output than the sequential algorithm using the same scalar 
 data type.
 
-The comparison is performed between 3 runs with identical inputs ([code](tests/test.py)). The first run casts inputs to 
+The comparison is performed between 3 runs with identical inputs ([code](tests/test.py#L116)). The first run casts inputs to 
 double precision and obtains the output reference using the sequential algorithm. Next, we run both sequential and 
 parallel algorithms with the same inputs cast to single precision and compare the results to the reference. The 
 comparison is performed using the `L_inf` norm, which is just the maximum of per-element discrepancies.
@@ -123,10 +124,10 @@ With 10000-element non-zero-centered input (such as all elements are 1.0), the e
 
 ## Speed-up
 
-We tested 3 implementations of the algorithm with the same 100000-element input ([code](tests/test.py)): 
-1. Sequential in PyTorch (as in 
-[REINFORCE](https://github.com/pytorch/examples/blob/87d9a1e/reinforcement_learning/reinforce.py#L66-L68))
-2. Sequential in C++ (Intel Xeon CPU, DGX-1)
+We tested 3 implementations of the algorithm with the same 100000-element input ([code](tests/test.py#L154)): 
+1. Sequential in PyTorch on CPU (as in 
+[REINFORCE](https://github.com/pytorch/examples/blob/87d9a1e/reinforcement_learning/reinforce.py#L66-L68)) (Intel Xeon CPU, DGX-1)
+2. Sequential in C++ on CPU (Intel Xeon CPU, DGX-1)
 3. Parallel in CUDA (NVIDIA P-100, DGX-1)
 
 The observed speed-ups are as follows: 
