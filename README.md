@@ -1,11 +1,12 @@
 # Fast Discounted Cumulative Sums in PyTorch
 
-![Fast Discounted Cumulative Sums in PyTorch](doc/img/logo_small.png)
-
 [![PyPiVersion](https://badge.fury.io/py/torch-discounted-cumsum.svg)](https://pypi.org/project/torch-discounted-cumsum/)
 ![PythonVersion](https://img.shields.io/badge/python-%3E%3D3.6-yellowgreen)
 [![PyPiDownloads](https://pepy.tech/badge/torch-discounted-cumsum)](https://pepy.tech/project/torch-discounted-cumsum)
-![License](https://img.shields.io/pypi/l/torch-discounted-cumsum)
+[![License](https://img.shields.io/badge/License(code)-BSD%203--Clause-blue.svg)](LICENSE_code)
+[![License: CC BY 4.0](https://img.shields.io/badge/License(doc)-CC%20BY%204.0-lightgrey.svg)](LICENSE_doc)
+
+<img src="doc/img/logo_small.png" align="left">
 
 This repository implements an efficient parallel algorithm for the computation of discounted cumulative sums 
 and a Python package with differentiable bindings to PyTorch. The discounted `cumsum` operation is frequently seen in 
@@ -99,7 +100,9 @@ updated element in the group. The discount factor is computed as gamma raised to
 updated and the discounted elements. In the figure below, this operation is denoted with tilted arrows with a greek 
 gamma tag. After the last stage completes, the output is written in place of the input. 
 
-![Parallel Algorithm](doc/img/algorithm.png)
+<p align="center">
+<img src="doc/img/algorithm.png">
+</p>
 
 In the CUDA implementation, `N / 2` CUDA threads are allocated during each stage to update the respective elements. The 
 strict separation of updates into stages via separate kernel invocations guarantees stage-level synchronization and 
