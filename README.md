@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License(code)-BSD%203--Clause-blue.svg)](LICENSE_code)
 [![License: CC BY 4.0](https://img.shields.io/badge/License(doc)-CC%20BY%204.0-lightgrey.svg)](LICENSE_doc)
 
-<img src="doc/img/logo_small.png" align="left">
+<img src="doc/img/logo_small.png" align="left" width="33%">
 
 This repository implements an efficient parallel algorithm for the computation of discounted cumulative sums 
 and a Python package with differentiable bindings to PyTorch. The discounted `cumsum` operation is frequently seen in 
