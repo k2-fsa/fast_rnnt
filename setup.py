@@ -35,6 +35,30 @@ https://www.github.com/toshas/torch-discounted-cumsum
 """
 
 
+def configure_extensions():
+    out = [
+        CppExtension(
+            'torch_discounted_cumsum_cpu',
+            [
+                os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cpu.cpp'),
+            ],
+        )
+    ]
+    try:
+        out.append(
+            CUDAExtension(
+                'torch_discounted_cumsum_cuda',
+                [
+                    os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cuda.cpp'),
+                    os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cuda_kernel.cu'),
+                ],
+            )
+        )
+    except Exception as e:
+        print(f'Failed to build CUDA extension, this part of the package will not work. Reason: {str(e)}')
+    return out
+
+
 setup(
     name='torch_discounted_cumsum',
     version='1.0.2',
@@ -47,21 +71,7 @@ setup(
     author='Anton Obukhov',
     license='BSD',
     url='https://www.github.com/toshas/torch-discounted-cumsum',
-    ext_modules=[
-        CppExtension(
-            'torch_discounted_cumsum_cpu',
-            [
-                os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cpu.cpp'),
-            ],
-        ),
-        CUDAExtension(
-            'torch_discounted_cumsum_cuda',
-            [
-                os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cuda.cpp'),
-                os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cuda_kernel.cu'),
-            ],
-        )
-    ],
+    ext_modules=configure_extensions(),
     cmdclass={
         'build_ext': BuildExtension
     },
