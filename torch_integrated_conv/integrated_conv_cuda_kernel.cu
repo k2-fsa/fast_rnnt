@@ -241,9 +241,9 @@ torch::Tensor integrated_conv_cuda(torch::Tensor input,
   TORCH_CHECK(pos_add.device() == input.device() &&
               pos_mul.device() == pos_add.device(),
               "Input devices mismatch");
-  dtype scalar_t = input.dtype();
-  TORCH_CHECK(pos_add.dtype() == scalar_t &&
-              pos_mul.dtype() == scalar_t,
+  auto scalar_t = input.scalar_type();
+  TORCH_CHECK(pos_add.scalar_type() == scalar_t &&
+              pos_mul.scalar_type() == scalar_t,
               "Input dtypes mismatch");
 
   torch::Tensor output = torch::empty({N, C, H, W},

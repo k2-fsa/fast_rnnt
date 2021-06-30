@@ -17,5 +17,5 @@ std::vector<torch::Tensor> integrated_conv_backward_cuda(torch::Tensor input,
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("integrated_conv_cuda", &integrated_conv_cuda, "Integrated convolution forward function (CUDA)");
-  m.def("integrated_conv_backward_cuda", &integrated_conv_forward_cuda, "Integrated convolution backward function (CUDA)");
+  m.def("integrated_conv_backward_cuda", &integrated_conv_backward_cuda, "Integrated convolution backward function (CUDA)");
 }
