@@ -37,7 +37,7 @@ torch::Tensor integrated_conv_cpu(torch::Tensor input,
         auto input_a = input.accessor<scalar_t, 4>(),
             output_a = output.accessor<scalar_t, 4>();
         auto pos_add_a = pos_add.accessor<scalar_t, 3>(),
-            pos_mul_a = pos_add.accessor<scalar_t, 3>();
+            pos_mul_a = pos_mul.accessor<scalar_t, 3>();
 
         for (int n = 0; n < N; n++) {
           for (int c = 0; c < C; c++) {

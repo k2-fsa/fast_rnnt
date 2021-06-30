@@ -35,14 +35,15 @@ def test_integrated_conv_compare():
         return
     for dtype in [torch.float32, torch.float64]:
         print("dtype=", dtype)
-        input = torch.ones(N, 2 * C, H, W, dtype=dtype)
+        input = torch.randn(N, 2 * C, H, W, dtype=dtype)
         device = torch.device('cuda:0')
         input_cuda = input.to(device)
 
         kH = 5
         kW = 5
-        pos_add = torch.ones(C, kH, kW, dtype=dtype)
-        pos_mul = torch.ones(C, kH, kW, dtype=dtype)
+        pos_add = torch.randn(C, kH, kW, dtype=dtype)
+        pos_mul = torch.randn(C, kH, kW, dtype=dtype)
+
         pos_add_cuda = pos_add.to(device)
         pos_mul_cuda = pos_mul.to(device)
 
@@ -50,7 +51,11 @@ def test_integrated_conv_compare():
         output_cuda = integrated_conv(input_cuda, pos_add_cuda, pos_mul_cuda)
         print("output = ", output)
         print("output_cuda = ", output_cuda)
-        assert torch.allclose(output, output_cuda.to(torch.device('cpu')))
+        diff = (output - output_cuda.to(torch.device('cpu'))).abs().sum()
+        abs = output.abs().sum()
+        print("Diff = ", diff, ", abs = ", abs)
+        assert torch.allclose(output, output_cuda.to(torch.device('cpu')),
+                              atol=1.0e-05)
 
 
 def test_integrated_conv_rand_compare():
@@ -76,7 +81,7 @@ def test_integrated_conv_rand_compare():
             return
         for dtype in [torch.float32, torch.float64]:
             print("dtype=", dtype)
-            input = torch.ones(N, 2 * C, H, W, dtype=dtype)
+            input = torch.randn(N, 2 * C, H, W, dtype=dtype)
             device = torch.device('cuda:0')
             input_cuda = input.to(device)
 
@@ -86,13 +91,20 @@ def test_integrated_conv_rand_compare():
                 kH += 1
             if kW % 2 == 0:
                 kW += 1
-            pos_add = torch.ones(C, kH, kW, dtype=dtype)
-            pos_mul = torch.ones(C, kH, kW, dtype=dtype)
+            pos_add = torch.randn(C, kH, kW, dtype=dtype)
+            pos_mul = torch.randn(C, kH, kW, dtype=dtype)
             pos_add_cuda = pos_add.to(device)
             pos_mul_cuda = pos_mul.to(device)
 
             output = integrated_conv(input, pos_add, pos_mul)
             output_cuda = integrated_conv(input_cuda, pos_add_cuda, pos_mul_cuda)
-            print("output = ", output)
-            print("output_cuda = ", output_cuda)
-            assert torch.allclose(output, output_cuda.to(torch.device('cpu')))
+
+            diff = (output - output_cuda.to(torch.device('cpu'))).abs().sum()
+            abs = output.abs().sum()
+            print("Diff = ", diff, ", abs = ", abs)
+
+            if not torch.allclose(output, output_cuda.to(torch.device('cpu')),
+                                  atol=1.0e-05):
+                print("output = ", output)
+                print("output_cuda = ", output_cuda)
+                assert 0, "outputs differ"

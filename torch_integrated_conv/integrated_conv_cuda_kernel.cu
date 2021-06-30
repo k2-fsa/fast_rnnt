@@ -294,9 +294,10 @@ torch::Tensor integrated_conv_cuda(torch::Tensor input,
             << "; patchH,patchW=" << patchH << ","
             << patchW << ", num_blocks_patch="
             << num_blocks_patch << ", num_blocks_batch="
-            << num_blocks_batch << std::endl
+            << num_blocks_batch
             << ", threads_per_opixel=" << threads_per_opixel
-            << ", threads_per_block=" << threads_per_block;
+            << ", threads_per_block=" << threads_per_block
+            << std::endl;
 
   dim3 gridDim(C, num_blocks_patch, num_blocks_batch);
   // blockDim is scalar, just threads_per_block.
