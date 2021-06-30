@@ -126,5 +126,5 @@ def integrated_conv(input, pos_add, pos_mul):
         return integrated_conv(input.unsqueeze(-2),
                                pos_add.unsqueeze(-2), pos_mul.unsqueeze(-2)).squeeze(-2)
     assert input.ndim == 4 and pos_add.ndim == 3 and pos_mul.ndim == 3
-    assert input.dim[1] // 2 == pos_add.dim[0] == pos_mul.dim[0]
+    assert input.shape[1] // 2 == pos_add.shape[0] == pos_mul.shape[0]
     return IntegratedConvFunction.apply(input, pos_add, pos_mul)
