@@ -9,15 +9,15 @@ with open('requirements.txt') as f:
 
 
 long_description = """
-This package implements an efficient parallel algorithm for the computation of discounted cumulative sums 
-with differentiable bindings to PyTorch. The `cumsum` operation is frequently seen in data science 
-domains concerned with time series, including Reinforcement Learning (RL). 
+This package implements an efficient parallel algorithm for the computation of discounted cumulative sums
+with differentiable bindings to PyTorch. The `cumsum` operation is frequently seen in data science
+domains concerned with time series, including Reinforcement Learning (RL).
 
-The traditional sequential algorithm performs the computation of the output elements in a loop. For an input of size 
-`N`, it requires `O(N)` operations and takes `O(N)` time steps to complete. 
+The traditional sequential algorithm performs the computation of the output elements in a loop. For an input of size
+`N`, it requires `O(N)` operations and takes `O(N)` time steps to complete.
 
-The proposed parallel algorithm requires a total of `O(N log N)` operations, but takes only `O(log N)` time, which is a 
-considerable trade-off in many applications involving large inputs.  
+The proposed parallel algorithm requires a total of `O(N log N)` operations, but takes only `O(log N)` time, which is a
+considerable trade-off in many applications involving large inputs.
 
 Features of the parallel algorithm:
 - Speed logarithmic in the input size
@@ -38,19 +38,19 @@ https://www.github.com/toshas/torch-discounted-cumsum
 def configure_extensions():
     out = [
         CppExtension(
-            'torch_discounted_cumsum_cpu',
+            'torch_integrated_conv_cpu',
             [
-                os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cpu.cpp'),
+                os.path.join('torch_integrated_conv', 'integrated_conv_cpu.cpp'),
             ],
         )
     ]
     try:
         out.append(
             CUDAExtension(
-                'torch_discounted_cumsum_cuda',
+                'torch_integrated_conv_cuda',
                 [
-                    os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cuda.cpp'),
-                    os.path.join('torch_discounted_cumsum', 'discounted_cumsum_cuda_kernel.cu'),
+                    os.path.join('torch_integrated_conv', 'integrated_conv_cuda.cpp'),
+                    os.path.join('torch_integrated_conv', 'integrated_conv_cuda_kernel.cu'),
                 ],
             )
         )
@@ -60,7 +60,7 @@ def configure_extensions():
 
 
 setup(
-    name='torch_discounted_cumsum',
+    name='torch_integrated_conv',
     version='1.0.2',
     description='Fast discounted cumulative sums in PyTorch',
     long_description=long_description,
