@@ -52,7 +52,7 @@ torch::Tensor integrated_conv_cpu(torch::Tensor input,
                 for (int kh = 0; kh < kH; kh++) {
                   int src_h = h + kh - kH / 2;
                   for (int kw = 0; kw < kW; kw++) {
-                    int src_w = h + kh - kH / 2;
+                    int src_w = w + kw - kW / 2;
                     scalar_t src = 0.0;
                     if (static_cast<unsigned int>(src_h) < static_cast<unsigned int>(H) &&
                         static_cast<unsigned int>(src_w) < static_cast<unsigned int>(W))
