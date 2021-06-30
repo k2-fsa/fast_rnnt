@@ -26,7 +26,7 @@ except ImportError:
 
 
 try:
-    import torch_integrated_conv_cuda
+        import torch_integrated_conv_cuda
 except ImportError:
     if VERBOSE:
         print('Falling back to JIT compiling torch_integrated_conv_cuda')
@@ -43,7 +43,7 @@ except ImportError:
 
 
 
-def _integrated_conv_forward_dispather(input: torch.Tensor,
+def _integrated_conv_forward_dispatcher(input: torch.Tensor,
                                        pos_add: torch.Tensor,
                                        pos_mul: torch.Tensor) -> torch.Tensor:
     if input.is_cuda:

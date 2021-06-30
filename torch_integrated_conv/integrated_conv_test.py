@@ -16,5 +16,6 @@ def test_integrated_conv_zeros():
             pos_add = torch.zeros(C, kH, kW, device=device, dtype=dtype)
             pos_mul = torch.zeros(C, kH, kW, device=device, dtype=dtype)
 
+            output_ref = torch.zeros(N, C, H, W, device=device, dtype=dtype)
             output = integrated_conv(input, pos_add, pos_mul)
-            assert torch.allclose(input, output)
+            assert torch.allclose(output, output_ref)
