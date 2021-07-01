@@ -212,6 +212,8 @@ void integrated_conv_kernel(
         if (relu > 0.0)
           sum += relu * pos_mul_buf[pos_in_kernel];
       }
+      // Sync threads because src_img_buf is also used above.
+      __syncthreads();
       // Aggregate `sum` over threads
       sum = tiled_warp_reduce_sum(threads_per_opixel, src_img_buf, sum);
       if (threadIdx.x % threads_per_opixel == 0 && h < H && w < W) {

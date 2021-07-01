@@ -62,11 +62,13 @@ def _integrated_conv_backward_dispatcher(input: torch.Tensor,
     if input.is_cuda:
         if torch_integrated_conv_cuda is None:
             raise EnvironmentError(f'Failed to load native CUDA module')
+        # Actually it's not a hard requirement that these things be contiguous.
         return tuple(torch_integrated_conv_cuda.integrated_conv_backward_cuda(
-            input.contiguous(), pos_add.contiguous(), pos_mul.contiguous()))
+            input.contiguous(), pos_add.contiguous(), pos_mul.contiguous(),
+            grad_output))
     else:
         return tuple(torch_integrated_conv_cpu.integrated_conv_backward_cpu(
-            input, pos_add, pos_mul))
+            input, pos_add, pos_mul, grad_output))
 
 
 

@@ -19,10 +19,18 @@ def test_integrated_conv_zeros():
             kW = 5
             pos_add = torch.zeros(C, kH, kW, device=device, dtype=dtype)
             pos_mul = torch.zeros(C, kH, kW, device=device, dtype=dtype)
+            input.requires_grad = True
+            pos_add.requires_grad = True
+            pos_mul.requires_grad = True
 
             output_ref = torch.zeros(N, C, H, W, device=device, dtype=dtype)
             output = integrated_conv(input, pos_add, pos_mul)
             assert torch.allclose(output, output_ref)
+
+            output.sum().backward()
+            print("input_grad=", input.grad)
+            print("pos_add_grad=", pos_add.grad)
+            print("pos_mul_grad=", pos_mul.grad)
 
 
 def test_integrated_conv_compare():
