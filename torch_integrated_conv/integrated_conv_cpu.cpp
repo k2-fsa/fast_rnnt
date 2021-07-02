@@ -58,7 +58,7 @@ torch::Tensor integrated_conv_cpu(torch::Tensor input,
                         static_cast<unsigned int>(src_w) < static_cast<unsigned int>(W))
                       src = src_input_a[src_h][src_w];
                     scalar_t relu = src + dest + this_pos_add_a[kh][kw];
-                    if (relu > 0.0)
+                    if (relu >= 0.0)
                       sum += relu * this_pos_mul_a[kh][kw];
                   }
                 }
@@ -127,7 +127,7 @@ std::vector<torch::Tensor> integrated_conv_backward_cpu(torch::Tensor input,
             for (int h = 0; h < H; h++) {
               for (int w = 0; w < W; w++) {
                 scalar_t dest = input_a[n][c + C][h][w],
-                    dest_grad = 0.0,  // to be multiplied by this_output_grad later..
+                    dest_grad = 0.0,  // to be multiplied by this_grad_output later..
                     this_grad_output = grad_output_a[n][c][h][w];
                 for (int kh = 0; kh < kH; kh++) {
                   int src_h = h + kh - kH / 2;
@@ -140,7 +140,7 @@ std::vector<torch::Tensor> integrated_conv_backward_cpu(torch::Tensor input,
                     scalar_t relu = src + dest + pos_add_a[c][kh][kw];
                     if (relu >= 0.0) {
                       scalar_t pos_mul_val = pos_mul_a[c][kh][kw];
-                      dest_grad += pos_mul_val;  // will later multiply by this_output_grad
+                      dest_grad += pos_mul_val;  // will later multiply by this_grad_output
                       grad_pos_add_a[c][kh][kw] += this_grad_output * pos_mul_val;
                       grad_pos_mul_a[c][kh][kw] += this_grad_output * relu;
                       if (static_cast<unsigned int>(src_h) < static_cast<unsigned int>(H) &&
@@ -149,7 +149,7 @@ std::vector<torch::Tensor> integrated_conv_backward_cpu(torch::Tensor input,
                     }
                   }
                 }
-                grad_input_a[n][c + C][h][w] += dest_grad * this_grad_output;
+                grad_input_a[n][c + C][h][w] = dest_grad * this_grad_output;
               }
             }
           }

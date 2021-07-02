@@ -348,7 +348,7 @@ void integrated_conv_kernel_backward(
                              // where the 'h' and 'w' indexes are into the zero-padded input
                              // image.
       *dest_img_buf = src_img_buf + ppatch_size,  // version of input image that relates to destinatioon position
-      *grad_output_buf = src_img_buf + ppatch_size, // output gradient for padded patch, indexed [h*ppatchW + w]
+      *grad_output_buf = dest_img_buf + ppatch_size, // output gradient for padded patch, indexed [h*ppatchW + w]
       *grad_pos_add_buf = grad_output_buf + ppatch_size,  // total grad for pos_add for this thread block, indexed [kh*kW + kw]
       *grad_pos_mul_buf = grad_pos_add_buf + (kH * kW),  // total grad for pos_mul for this thread block, indexed [kh*kW + kw]
       *reduce_buf = grad_pos_mul_buf + (kH * kW);  // buffer for reduction over threads, size == blockDim.x
@@ -360,13 +360,17 @@ void integrated_conv_kernel_backward(
   // Load parts of the kernel parameters pos_add and pos_mul into shared memory,
   // in pos_add_buf and pos_mul_buf; zero the corresponding gradient buffers.
   // We know that blockDim.x >= kH * kW, see threads_per_kernel_pos.
-  if (threadIdx.x < kH * kW) {
-    int i = threadIdx.x;
+
+  for (int i = threadIdx.x % (blockDim.x / 2); i < kH * kW; i += (blockDim.x / 2)) {
     int kh = i / kW, kw = i % kW;
-    pos_add_buf[i] = pos_add[c][kh][kw];
-    pos_mul_buf[i] = pos_mul[c][kh][kw];
-    grad_pos_add_buf[i] = 0.0;
-    grad_pos_mul_buf[i] = 0.0;
+    if (threadIdx.x < blockDim.x / 2) {  // First half of threads take care of pos_add..
+      pos_add_buf[i] = pos_add[c][kh][kw];
+      grad_pos_add_buf[i] = 0.0;
+    } else {  // Second half take care of pos_mul... there is no warp divergence
+              // because we make sure blockDim.x is a multiple of 64.
+      pos_mul_buf[i] = pos_mul[c][kh][kw];
+      grad_pos_mul_buf[i] = 0.0;
+    }
   }
 
   // n is the index within the batch of images.  Loop to make sure we cover all
@@ -391,7 +395,8 @@ void integrated_conv_kernel_backward(
 
       // Load the 'src' and 'dest' versions of the padded patch into
       // shared-memory buffers, and also the output gradient.
-      for (int i = threadIdx.x % (blockDim.x / 2); i < ppatch_size; i += (blockDim.x / 2)) {
+      for (int i = threadIdx.x % (blockDim.x / 2);
+           i < ppatch_size; i += (blockDim.x / 2)) {
         int h_in_ppatch = i / ppatchW,
             w_in_ppatch = i % ppatchW;
         int h = patch_h_offset + h_in_ppatch - (kH / 2),  // kH / 2 is offset due to padding
@@ -401,7 +406,7 @@ void integrated_conv_kernel_backward(
                                              // load `input`
           scalar_t src_val = scalar_t(0),
               dest_val = scalar_t(0);
-          if ((unsigned int)h < (unsigned int)H &&  // h >= 0 && h < H.
+          if ((unsigned int)h < (unsigned int)H &&  // h >= 0 && h < H
               (unsigned int)w < (unsigned int)W) {  // w >= 0 && w < W
             int C = grad_output.size(1);
             src_val = input[n][c][h][w];
@@ -429,7 +434,7 @@ void integrated_conv_kernel_backward(
           grad_input_dest_sum = 0.0;   // grad for channel c + C, for our pixel
                                        // of `input` (contribution of this thread)
       if (pos_in_patch < patch_size) {
-        // This block computes `grad_input_sum`.
+        // This block computes `grad_input_src_sum` and `grad_input_dest_sum`
         // The num-threads for the backward kernel may not be an exact multiple
         // of patch_size, wo we need the if-guard.
 
@@ -456,7 +461,6 @@ void integrated_conv_kernel_backward(
 
           // This is actually more like cross-correlation, as we don't have a
           // negative sign on the h and w indexes in the kernel.
-
           int src_h_in_ppatch = h_in_patch + h_in_kernel,
               src_w_in_ppatch = w_in_patch + w_in_kernel;
           int src_pos_in_ppatch = src_h_in_ppatch * ppatchW + src_w_in_ppatch;
@@ -469,9 +473,11 @@ void integrated_conv_kernel_backward(
             scalar_t this_grad_output = grad_output_buf[pos_in_ppatch];
             grad_input_dest_sum += this_grad_output * pos_mul_val;
           }
-          // To compute a contribution to "this_input_src_grad", we need to consider the
-          // contribution to the destination pixel that it would have contributed to
-          // with this same offset.
+          // To compute a contribution to "this_input_src_grad", we need to
+          // consider the contribution to the destination pixel that it would
+          // have contributed to with this same offset.
+          // We have to flip the offsets: instead of "+ h_in_kernel",
+          // we use (kH - 1) - h_in_kernel,.
           int dest_h_in_ppatch = h_in_patch + (kH - 1) - h_in_kernel,
               dest_w_in_ppatch = w_in_patch + (kW - 1) - w_in_kernel,
               dest_pos_in_ppatch = dest_h_in_ppatch * ppatchW + dest_w_in_ppatch;
@@ -485,6 +491,7 @@ void integrated_conv_kernel_backward(
       }
       // Aggregate `grad_input_src_sum` over threads, if needed; and write the
       // result to `grad_input`.
+      // h and w are un-padded indexes into the entire image.
       int h = patch_h_offset + pos_in_patch / patchW,
           w = patch_w_offset + pos_in_patch % patchW;
 
@@ -514,7 +521,8 @@ void integrated_conv_kernel_backward(
             kw = pos_in_kernel % kW;
 
         // This group of (threads_per_kernel_pos) threads is responsible
-        // for position (kh, kw) in the kernel; we iterate over the patch.
+        // for position (kh, kw) in the kernel; we iterate over the patch
+        // (an un-padded patch of output).
         scalar_t pos_add_val = pos_add_buf[pos_in_kernel],
                  pos_mul_val = pos_mul_buf[pos_in_kernel];
 
@@ -524,15 +532,15 @@ void integrated_conv_kernel_backward(
           // and pos_mul; we let `pos_in_patch` correspond to the *output*
           // position, and work out the input position based on gthe kernel position.
 
-          int h_in_patch = pos_in_patch / patchH,
-              w_in_patch = pos_in_patch / patchW;
+          int h_in_patch = pos_in_patch / patchW,
+              w_in_patch = pos_in_patch % patchW;
 
           // pos_in_ppatch is the position in the padded patch corresponding to
           // `pos_in_patch`.
           int pos_in_ppatch = (h_in_patch + kH / 2) * ppatchW + (w_in_patch + kW / 2);
           scalar_t dest_val = dest_img_buf[pos_in_ppatch];
-          int offset_pos_in_ppatch = (h_in_patch + kh) * ppatchW + (w_in_patch + kw);
-          scalar_t src_val = src_img_buf[offset_pos_in_ppatch];
+          int src_pos_in_ppatch = (h_in_patch + kh) * ppatchW + (w_in_patch + kw);
+          scalar_t src_val = src_img_buf[src_pos_in_ppatch];
 
           scalar_t relu = dest_val + src_val + pos_add_val;
           if (relu >= 0.0) {
@@ -546,13 +554,15 @@ void integrated_conv_kernel_backward(
         this_grad_pos_mul = tiled_warp_reduce_sum(
             threads_per_kernel_pos, reduce_buf, this_grad_pos_mul);
         if (threadIdx.x % threads_per_kernel_pos == 0) {
-          grad_pos_add_buf[pos_in_kernel] = this_grad_pos_add;
-          grad_pos_mul_buf[pos_in_kernel] = this_grad_pos_mul;
+          grad_pos_add_buf[pos_in_kernel] += this_grad_pos_add;
+          grad_pos_mul_buf[pos_in_kernel] += this_grad_pos_mul;
         }
       }
     }
   }
 
+  __syncthreads(); // make sure all threads have written to grad_pos_add_buf and
+                   // grad_pos_mul_buf.
   int block = blockIdx.z * gridDim.y + blockIdx.y;
 
   int kernel_pos = threadIdx.x;
