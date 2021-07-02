@@ -665,6 +665,7 @@ torch::Tensor integrated_conv_cuda(torch::Tensor input,
 
   assert(num_blocks_patch <= num_patches && num_blocks_batch <= N);
 
+#if 0
   std::cout << "N,C,H,W=" << N << "," << C << "," << H << "," << W
             << "; kW,kH=" << kW << "," << kH
             << "; patchH,patchW=" << patchH << ","
@@ -674,6 +675,7 @@ torch::Tensor integrated_conv_cuda(torch::Tensor input,
             << ", threads_per_opixel=" << threads_per_opixel
             << ", threads_per_block=" << threads_per_block
             << std::endl;
+#endif
 
   dim3 gridDim(C, num_blocks_patch, num_blocks_batch);
   // blockDim is scalar, just threads_per_block.
@@ -805,6 +807,7 @@ std::vector<torch::Tensor> integrated_conv_backward_cuda(torch::Tensor input,
   assert(patchH * patchW * threads_per_pixel <= threads_per_block);
   assert(kH * kW * threads_per_kernel_pos <= threads_per_block);
 
+#if 0
   std::cout << "[backward:] N,C,H,W=" << N << "," << C << "," << H << "," << W
             << "; kW,kH=" << kW << "," << kH
             << "; patchH,patchW=" << patchH << ","
@@ -816,6 +819,7 @@ std::vector<torch::Tensor> integrated_conv_backward_cuda(torch::Tensor input,
             << ", threads_per_block=" << threads_per_block
             << ", buffer_numel=" << buffer_numel
             << std::endl;
+#endif
 
   int num_blocks = num_blocks_patch * num_blocks_batch;
 
