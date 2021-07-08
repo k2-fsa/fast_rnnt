@@ -40,7 +40,7 @@ __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
 }
 
 /*
-  Forward of integrated_conv.  Each thread group handles a single channel (equal
+  Forward of learned_nonlin.  Each thread group handles a single channel (equal
   to blockIdx.x), and loops over patches of the output and over the image n
   within the batch (different thread groups may be responsible for different
   subsets of patches and/or images, see docs of gridDim below).
@@ -67,7 +67,7 @@ __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
        gridDim.y <= num-patches per image (recommended)
        gridDim.z <= batch-size N (recommended)
   When we invoke this kernel, we'll invoke it as:
-   integrated_conv_forward<<<gridDim, blockDim, bytesShared, stream>>>
+   learned_nonlin_forward<<<gridDim, blockDim, bytesShared, stream>>>
   where bytesShared is the number of bytes needed in `extern_buf`:
     bytesShared = sizeof(shared_t) * numel, where
     numel = 2 * (kH * kW) + max(blockDim.x, (opatchH + kH - 1) * (patchW + kW - 1))
@@ -76,7 +76,7 @@ extern __shared__ int extern_buf[];
 
 template <typename scalar_t>
 __global__
-void integrated_conv_kernel(
+void learned_nonlin_kernel(
     torch::PackedTensorAccessor32<scalar_t, 4> input,  // N, 2*C, H, W
     torch::PackedTensorAccessor32<scalar_t, 3> pos_add,  // C, kH, kW
     torch::PackedTensorAccessor32<scalar_t, 3> pos_mul,  // C, kH, kW
@@ -225,7 +225,7 @@ void integrated_conv_kernel(
 
 
 /*
-  Backward of integrated_conv.  Each thread group handles a single channel (equal
+  Backward of learned_nonlin.  Each thread group handles a single channel (equal
   to blockIdx.x), and loops over patches of the output and over the image n
   within the batch (different thread groups may be responsible for different
   subsets of patches and/or images, see docs of gridDim below).
@@ -290,7 +290,7 @@ void integrated_conv_kernel(
        gridDim.y <= num-patches per image (recommended)
        gridDim.z <= batch-size N (recommended)
   When we invoke this kernel, we'll invoke it as:
-   integrated_conv_forward<<<gridDim, blockDim, bytesShared, stream>>>
+   learned_nonlin_forward<<<gridDim, blockDim, bytesShared, stream>>>
   where bytesShared is the number of bytes needed in `extern_buf`:
 
    bytesShared = sizeof(shared_t) * numel, where
@@ -300,7 +300,7 @@ void integrated_conv_kernel(
 
 template <typename scalar_t>
 __global__
-void integrated_conv_kernel_backward(
+void learned_nonlin_kernel_backward(
     torch::PackedTensorAccessor32<scalar_t, 4> input,  // N, 2*C, H, W
     torch::PackedTensorAccessor32<scalar_t, 3> pos_add,  // C, kH, kW
     torch::PackedTensorAccessor32<scalar_t, 3> pos_mul,  // C, kH, kW
@@ -581,7 +581,7 @@ void integrated_conv_kernel_backward(
 
 
 
-torch::Tensor integrated_conv_cuda(torch::Tensor input,
+torch::Tensor learned_nonlin_cuda(torch::Tensor input,
                                    torch::Tensor pos_add,
                                    torch::Tensor pos_mul) {
   TORCH_CHECK(input.dim() == 4, "input must be 4-dimensional");
@@ -665,22 +665,24 @@ torch::Tensor integrated_conv_cuda(torch::Tensor input,
 
   assert(num_blocks_patch <= num_patches && num_blocks_batch <= N);
 
-#if 0
-  std::cout << "N,C,H,W=" << N << "," << C << "," << H << "," << W
-            << "; kW,kH=" << kW << "," << kH
-            << "; patchH,patchW=" << patchH << ","
-            << patchW << ", num_blocks_patch="
-            << num_blocks_patch << ", num_blocks_batch="
-            << num_blocks_batch
-            << ", threads_per_opixel=" << threads_per_opixel
-            << ", threads_per_block=" << threads_per_block
-            << std::endl;
-#endif
+  static int debug_count = 50;
+  if (debug_count > 0) {
+    debug_count--;
+    std::cout << "N,C,H,W=" << N << "," << C << "," << H << "," << W
+              << "; kW,kH=" << kW << "," << kH
+              << "; patchH,patchW=" << patchH << ","
+              << patchW << ", num_blocks_patch="
+              << num_blocks_patch << ", num_blocks_batch="
+              << num_blocks_batch
+              << ", threads_per_opixel=" << threads_per_opixel
+              << ", threads_per_block=" << threads_per_block
+              << std::endl;
+  }
 
   dim3 gridDim(C, num_blocks_patch, num_blocks_batch);
   // blockDim is scalar, just threads_per_block.
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "integrated_conv_kernel", ([&] {
-        integrated_conv_kernel<scalar_t><<<gridDim, threads_per_block, sizeof(scalar_t) * buffer_numel, at::cuda::getCurrentCUDAStream()>>>(
+  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_kernel", ([&] {
+        learned_nonlin_kernel<scalar_t><<<gridDim, threads_per_block, sizeof(scalar_t) * buffer_numel, at::cuda::getCurrentCUDAStream()>>>(
               input.packed_accessor32<scalar_t, 4>(),
               pos_add.packed_accessor32<scalar_t, 3>(),
               pos_mul.packed_accessor32<scalar_t, 3>(),
@@ -693,10 +695,10 @@ torch::Tensor integrated_conv_cuda(torch::Tensor input,
 
 
 
-std::vector<torch::Tensor> integrated_conv_backward_cuda(torch::Tensor input,
-                                                         torch::Tensor pos_add,
-                                                         torch::Tensor pos_mul,
-                                                         torch::Tensor grad_output) {
+std::vector<torch::Tensor> learned_nonlin_backward_cuda(torch::Tensor input,
+                                                        torch::Tensor pos_add,
+                                                        torch::Tensor pos_mul,
+                                                        torch::Tensor grad_output) {
   TORCH_CHECK(input.dim() == 4, "input must be 4-dimensional");
   TORCH_CHECK(pos_add.dim() == 3, "pos_add must be 3-dimensional.");
   TORCH_CHECK(pos_mul.dim() == 3, "pos_add must be 3-dimensional.");
@@ -807,19 +809,21 @@ std::vector<torch::Tensor> integrated_conv_backward_cuda(torch::Tensor input,
   assert(patchH * patchW * threads_per_pixel <= threads_per_block);
   assert(kH * kW * threads_per_kernel_pos <= threads_per_block);
 
-#if 0
-  std::cout << "[backward:] N,C,H,W=" << N << "," << C << "," << H << "," << W
-            << "; kW,kH=" << kW << "," << kH
-            << "; patchH,patchW=" << patchH << ","
-            << patchW << ", num_blocks_patch="
-            << num_blocks_patch << ", num_blocks_batch="
-            << num_blocks_batch
-            << ", threads_per_pixel=" << threads_per_pixel
-            << ", threads_per_kernel_pos=" << threads_per_kernel_pos
-            << ", threads_per_block=" << threads_per_block
-            << ", buffer_numel=" << buffer_numel
-            << std::endl;
-#endif
+  static int debug_count = 50;
+  if (debug_count > 0) {
+    debug_count--;
+    std::cout << "[backward:] N,C,H,W=" << N << "," << C << "," << H << "," << W
+              << "; kW,kH=" << kW << "," << kH
+              << "; patchH,patchW=" << patchH << ","
+              << patchW << ", num_blocks_patch="
+              << num_blocks_patch << ", num_blocks_batch="
+              << num_blocks_batch
+              << ", threads_per_pixel=" << threads_per_pixel
+              << ", threads_per_kernel_pos=" << threads_per_kernel_pos
+              << ", threads_per_block=" << threads_per_block
+              << ", buffer_numel=" << buffer_numel
+              << std::endl;
+  }
 
   int num_blocks = num_blocks_patch * num_blocks_batch;
 
@@ -833,8 +837,8 @@ std::vector<torch::Tensor> integrated_conv_backward_cuda(torch::Tensor input,
 
   dim3 gridDim(C, num_blocks_patch, num_blocks_batch);
   // blockDim is scalar, just threads_per_block.
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "integrated_conv_kernel_backward", ([&] {
-        integrated_conv_kernel_backward<scalar_t><<<gridDim, threads_per_block,
+  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_kernel_backward", ([&] {
+        learned_nonlin_kernel_backward<scalar_t><<<gridDim, threads_per_block,
                                                     sizeof(scalar_t) * buffer_numel,
                                                     at::cuda::getCurrentCUDAStream()>>>(
               input.packed_accessor32<scalar_t, 4>(),

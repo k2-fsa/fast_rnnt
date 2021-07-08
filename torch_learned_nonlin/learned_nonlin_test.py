@@ -1,9 +1,29 @@
 import random
 import torch
-from torch_integrated_conv import integrated_conv
+from torch_learned_nonlin import learned_nonlin
 
 
-def test_integrated_conv_zeros():
+def test_learned_nonlin_basic():
+    for dtype in [torch.float32, torch.float64]:
+        B = 2
+        C = 4
+        T = 10
+        x = -2.0 + 0.4 * torch.arange(10, dtype=dtype)
+        x = x.reshape(1, 1, 10).repeat(B, C, 1)
+
+        K = 4
+        N = K * 2
+        params = torch.arange(N + 1, dtype=dtype).unsqueeze(0) + torch.arange(C, dtype=dtype).unsqueeze(1)
+        print("x = ", x)
+        print("params = ", params)
+        print("x.shape = ", x.shape)
+        y = learned_nonlin(x, params, dim = 1)
+        print("y = ", y)
+
+
+
+
+def test_learned_nonlin_zeros():
     N = 1
     C = 2
     H = 3
@@ -24,7 +44,7 @@ def test_integrated_conv_zeros():
             pos_mul.requires_grad = True
 
             output_ref = torch.zeros(N, C, H, W, device=device, dtype=dtype)
-            output = integrated_conv(input, pos_add, pos_mul)
+            output = learned_nonlin(input, pos_add, pos_mul)
             assert torch.allclose(output, output_ref)
 
             output.sum().backward()
@@ -33,7 +53,7 @@ def test_integrated_conv_zeros():
             print("pos_mul_grad=", pos_mul.grad)
 
 
-def test_integrated_conv_compare():
+def test_learned_nonlin_compare():
     N = 1
     C = 2
     H = 3
@@ -58,8 +78,8 @@ def test_integrated_conv_compare():
         for x in [ pos_add, pos_mul, pos_add_cuda, pos_mul_cuda, input, input_cuda ]:
             x.requires_grad = True
 
-        output = integrated_conv(input, pos_add, pos_mul)
-        output_cuda = integrated_conv(input_cuda, pos_add_cuda, pos_mul_cuda)
+        output = learned_nonlin(input, pos_add, pos_mul)
+        output_cuda = learned_nonlin(input_cuda, pos_add_cuda, pos_mul_cuda)
         print("output = ", output)
         print("output_cuda = ", output_cuda)
 
@@ -89,7 +109,7 @@ def test_integrated_conv_compare():
 
 
 
-def test_integrated_conv_rand_compare():
+def test_learned_nonlin_rand_compare():
     for _ in range(30):
         N = random.randint(1, 256)
         C = random.randint(1, 64)
@@ -127,8 +147,8 @@ def test_integrated_conv_rand_compare():
             pos_add_cuda = pos_add.to(device)
             pos_mul_cuda = pos_mul.to(device)
 
-            output = integrated_conv(input, pos_add, pos_mul)
-            output_cuda = integrated_conv(input_cuda, pos_add_cuda, pos_mul_cuda)
+            output = learned_nonlin(input, pos_add, pos_mul)
+            output_cuda = learned_nonlin(input_cuda, pos_add_cuda, pos_mul_cuda)
 
             diff = (output - output_cuda.to(torch.device('cpu'))).abs().sum()
             sum_abs = output.abs().sum()
@@ -141,7 +161,7 @@ def test_integrated_conv_rand_compare():
 
 
 
-def test_integrated_conv_rand_grad():
+def test_learned_nonlin_rand_grad():
     for _ in range(30):
         N = random.randint(1, 256)
         C = random.randint(1, 64)
@@ -179,7 +199,7 @@ def test_integrated_conv_rand_grad():
                 pos_add.requires_grad = True
                 pos_mul.requires_grad = True
 
-                output = integrated_conv(input, pos_add, pos_mul)
+                output = learned_nonlin(input, pos_add, pos_mul)
                 output_grad = torch.randn(N, C, H, W, dtype=dtype, device=device)
 
                 output.backward(gradient=output_grad)
@@ -187,24 +207,26 @@ def test_integrated_conv_rand_grad():
                 delta = 1.0e-05
                 pos_delta = delta * torch.randn(C, kH, kW, dtype=dtype, device=device)
                 pred_change = (pos_delta * pos_add.grad).sum().to('cpu').item()
-                change = (output_grad * (integrated_conv(input, pos_add + pos_delta, pos_mul) - output )).sum().to('cpu').item()
+                change = (output_grad * (learned_nonlin(input, pos_add + pos_delta, pos_mul) - output )).sum().to('cpu').item()
                 print(f"For pos_add: pred_change={pred_change}, change={change}")
                 #assert abs(pred_change - change)  < 1.0e-04
 
                 pred_change = (pos_delta * pos_mul.grad).sum().to('cpu').item()
-                change = (output_grad * (integrated_conv(input, pos_add, pos_mul + pos_delta) - output )).sum().to('cpu').item()
+                change = (output_grad * (learned_nonlin(input, pos_add, pos_mul + pos_delta) - output )).sum().to('cpu').item()
                 print(f"For pos_mul: pred_change={pred_change}, change={change}")
                 #assert abs(pred_change - change) / abs(change) < 1.0e-04
 
                 input_delta = delta * torch.randn(N, 2*C, H, W, dtype=dtype, device=device)
                 pred_change = (input_delta * input.grad).sum().to('cpu').item()
-                change = (output_grad * (integrated_conv(input + input_delta, pos_add, pos_mul) - output )).sum().to('cpu').item()
+                change = (output_grad * (learned_nonlin(input + input_delta, pos_add, pos_mul) - output )).sum().to('cpu').item()
                 print(f"For input: pred_change={pred_change}, change={change}")
                 #assert abs(pred_change - change) / abs(change) < 1.0e-04
 
 
 if __name__ == "__main__":
-    test_integrated_conv_rand_grad()
-    test_integrated_conv_zeros()
-    test_integrated_conv_compare()
-    test_integrated_conv_rand_compare()
+    test_learned_nonlin_basic()
+    if False:
+        test_learned_nonlin_rand_grad()
+        test_learned_nonlin_zeros()
+        test_learned_nonlin_compare()
+        test_learned_nonlin_rand_compare()

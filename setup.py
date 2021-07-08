@@ -38,19 +38,19 @@ https://www.github.com/toshas/torch-discounted-cumsum
 def configure_extensions():
     out = [
         CppExtension(
-            'torch_integrated_conv_cpu',
+            'torch_learned_nonlin_cpu',
             [
-                os.path.join('torch_integrated_conv', 'integrated_conv_cpu.cpp'),
+                os.path.join('torch_learned_nonlin', 'learned_nonlin_cpu.cpp'),
             ],
         )
     ]
     try:
         out.append(
             CUDAExtension(
-                'torch_integrated_conv_cuda',
+                'torch_learned_nonlin_cuda',
                 [
-                    os.path.join('torch_integrated_conv', 'integrated_conv_cuda.cpp'),
-                    os.path.join('torch_integrated_conv', 'integrated_conv_cuda_kernel.cu'),
+                    os.path.join('torch_learned_nonlin', 'learned_nonlin_cuda.cpp'),
+                    os.path.join('torch_learned_nonlin', 'learned_nonlin_cuda_kernel.cu'),
                 ],
             )
         )
@@ -60,7 +60,7 @@ def configure_extensions():
 
 
 setup(
-    name='torch_integrated_conv',
+    name='torch_learned_nonlin',
     version='1.0.2',
     description='Fast discounted cumulative sums in PyTorch',
     long_description=long_description,
