@@ -60,8 +60,7 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
               // so in a sense -K and +K are not special, but we include those
               // extra values as an easy way to handle the semi-infinite regions
               // that are < -(K-1) and > (K-1)
-              scalar_t x = input_a[b][c][t] * inv_scale + K,
-                  y;
+              scalar_t x = input_a[b][c][t] * inv_scale + K;
               int min = 0, diff = K;
               while (diff > 0) {
                 int mid = min + diff;
@@ -70,7 +69,7 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
                 diff = diff >> 1;
               }
               // OK, at this point, 0 <= min < 2*K.
-              y = (x - (scalar_t)min) * params_a[c][min + 1] + y_vals_a[c][min];
+              scalar_t y = (x - (scalar_t)min) * params_a[c][min + 1] + y_vals_a[c][min];
               // printf("x = %f, y = %f, min = %d; y = (%f - %d) * %f+ %f\n", x, y, min,
               // x, min, params_a[c][min + 1], y_vals_a[c][min - 1]);
               output_a[b][c][t] = y * scale;
@@ -116,18 +115,21 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
 
   AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_backward_cpu_loop", ([&] {
         auto params_a = params.accessor<scalar_t, 2>(),
-            params_grad_a = params.accessor<scalar_t, 2>(),
+            params_grad_a = params_grad.accessor<scalar_t, 2>(),
             y_vals_a = y_vals.accessor<scalar_t, 2>(),
-            y_vals_grad_a = y_vals.accessor<scalar_t, 2>();
+            y_vals_grad_a = y_vals_grad.accessor<scalar_t, 2>();
         for (int c = 0; c < C; c++) {
           scalar_t sum_negative = 0.0,
               sum_positive = 0.0;
           for (int i = 0; i < K; i++) {
-            y_vals_a[c][K - 1 + i] = sum_positive;
-            y_vals_a[c][K - 1 - i] = sum_negative;
+            y_vals_a[c][K + i] = sum_positive;
+            y_vals_a[c][K - i] = sum_negative;
             sum_positive += params_a[c][1 + K + i];
             sum_negative -= params_a[c][K - i];
           }
+          // the reference point for the lowest, half-infinite interval (the one
+          // starting at x=-(K-1) is still x=-(K-1); this value is repeated in y_vals.
+          y_vals_a[c][0] = y_vals_a[c][1];
         }
 
         auto input_a = input.accessor<scalar_t, 3>(),
@@ -147,10 +149,9 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
               // so in a sense -K and +K are not special, but we include those
               // extra values as an easy way to handle the semi-infinite regions
               // that are < -(K-1) and > (K-1)
-              scalar_t x = input_a[b][c][t] * inv_scale + K,
-                  output_grad = output_grad_a[b][c][t],
-                  x_grad,
-                  y;
+              scalar_t input = input_a[b][c][t],
+                  x = input * inv_scale + K,
+                  output_grad = output_grad_a[b][c][t];
               int min = 0, diff = K;
               while (diff > 0) {
                 int mid = min + diff;
@@ -159,26 +160,45 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
                 diff = diff >> 1;
               }
               // OK, at this point, 0 <= min < 2*K.
-              // The "+ 1" is to get (input_a[b][c][t] * inv_scale) - (-(K+1))
-              if (min == 0) {
-                y = (x + 1) * params_a[c][1] +  y_vals_a[c][0];
-                // output_a[b][c][t] = y * scale;
-                scale_grad += y * output_grad;
-                scalar_t y_grad = scale * output_grad;
-                x_grad = y_grad * params_a[c][1];
-                //y_vals_grad_a[c][0] +=
-              } else {
-                y = (x - (scalar_t)min) * params_a[c][min + 1] + y_vals_a[c][min - 1];
-                // printf("x = %f, y = %f, min = %d; y = (%f - %d) * %f+ %f\n", x, y, min,
-                // x, min, params_a[c][min + 1], y_vals_a[c][min - 1]);
-
-              }
-              //output_a[b][c][t] = y * scale;
+              scalar_t y = (x - (scalar_t)min) * params_a[c][min + 1] + y_vals_a[c][min];
+              // backprop for:  output_a[b][c][t] = y * scale;
+              scale_grad += y * output_grad;
+              scalar_t y_grad = scale * output_grad;
+              // backprop for:
+              // scalar_t y = (x - (scalar_t)min) * params_a[c][min + 1] + y_vals_a[c][min];
+              scalar_t x_grad = y_grad * params_a[c][min + 1];
+              params_grad_a[c][min + 1] += y_grad * (x - (scalar_t)min);
+              y_vals_grad_a[c][min] += y_grad;
+              // backprop for:  x = input * inv_scale + K,
+              inv_scale_grad += x_grad * input;
+              input_grad_a[b][c][t] = x_grad * inv_scale;
             }
+            // Do the backprop to l as if we had done:
+            //   scale = exp(l);  inv_scale = exp(-l);
+            scalar_t l_grad = scale * scale_grad - inv_scale * inv_scale_grad;
+            params_grad_a[c][0] += l_grad;
+
           }
-        }}));
-  //return output;
-  //return std::vector<torch::Tensor>({grad_input, grad_pos_add, grad_pos_mul});
+        }
+        // Now do the backprop for the loop above where we set y_vals_a.
+        for (int c = 0; c < C; c++) {
+          // backprop for: y_vals_a[c][0] = y_vals_a[c][1];
+          y_vals_grad_a[c][1] += y_vals_grad_a[c][0];
+          scalar_t sum_negative_grad = 0.0,
+              sum_positive_grad = 0.0;
+          for (int i = K - 1; i >= 0; i--) {
+            // backprop for: sum_negative -= params_a[c][K - i];
+            params_grad_a[c][K - i] -= sum_negative_grad;
+            // backprop for: sum_positive += params_a[c][1 + K + i];
+            params_grad_a[c][1 + K + i] += sum_positive_grad;
+            // backprop for:  y_vals_a[c][K - i] = sum_negative;
+            sum_negative_grad += y_vals_grad_a[c][K - i];
+            // backprop for: y_vals_a[c][K + i] = sum_positive;
+            sum_positive_grad += y_vals_grad_a[c][K + i];
+          }
+        }
+      }));
+  return std::vector<torch::Tensor>({input_grad, params_grad});
 }
 
 

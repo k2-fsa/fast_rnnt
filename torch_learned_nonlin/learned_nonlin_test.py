@@ -14,12 +14,54 @@ def test_learned_nonlin_basic():
         K = 4
         N = K * 2
         params = torch.arange(N + 1, dtype=dtype).unsqueeze(0) + torch.arange(C, dtype=dtype).unsqueeze(1)
+        x.requires_grad = True
+        params.requires_grad = True
         print("x = ", x)
         print("params = ", params)
         print("x.shape = ", x.shape)
         y = learned_nonlin(x, params, dim = 1)
         print("y = ", y)
 
+        y.sum().backward()
+
+        print("x.grad = ", x.grad)
+        print("params.grad = ", params.grad)
+
+        # Just eyeballing the above tgo make sure it looks reasonable.
+
+
+def test_learned_nonlin_deriv():
+    """ Tests derivatives in randomized way """
+    for _ in range(10):
+        for dtype in [torch.float32, torch.float64]:
+            B = random.randrange(1, 10)
+            C = random.randrange(1, 10)
+            T = random.randrange(1, 20)
+            x = torch.randn(B, C, T, dtype=dtype)
+
+            K = 2 ** random.randrange(0, 4)
+            N = K * 2
+            params = torch.randn(C, N + 1, dtype=dtype)
+            x.requires_grad = True
+            params.requires_grad = True
+            print(f"B,C,T,K = {B},{C},{T},{K}")
+            y = learned_nonlin(x, params, dim = 1)
+
+            y_deriv = torch.rand_like(y)
+            y.backward(gradient=y_deriv)
+
+            delta = 1.0e-04
+            delta_x = torch.randn_like(x) * delta
+            pred_change = (x.grad * delta_x).sum()
+            observed_change = (y_deriv * (learned_nonlin(x + delta_x, params, dim = 1) - y)).sum()
+            print(f"for input: pred_change = {pred_change}, observed_change={observed_change}")
+            assert torch.allclose(pred_change, observed_change, rtol=1.0e-02, atol=1.0e-05)
+
+            delta_params = torch.randn_like(params) * delta
+            pred_change = (params.grad * delta_params).sum()
+            observed_change = (y_deriv * (learned_nonlin(x, params + delta_params, dim = 1) - y)).sum()
+            print(f"for params: pred_change = {pred_change}, observed_change={observed_change}")
+            assert torch.allclose(pred_change, observed_change, rtol=1.0e-02, atol=1.0e-05)
 
 
 
@@ -225,6 +267,7 @@ def test_learned_nonlin_rand_grad():
 
 if __name__ == "__main__":
     test_learned_nonlin_basic()
+    test_learned_nonlin_deriv()
     if False:
         test_learned_nonlin_rand_grad()
         test_learned_nonlin_zeros()
