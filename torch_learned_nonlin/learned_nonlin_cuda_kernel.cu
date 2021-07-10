@@ -165,16 +165,15 @@ void learned_nonlin_kernel(
     // images_per_thread_block > 1 if T * images_per_thread_block <=
     // THREADS_PER_BLOCK.
     for (int t = t_start; t < T; t += THREADS_PER_BLOCK) {
-      scalar_t x = input[b][c][t] * inv_scale + K;
-      int min = 0, diff = K;
-      while (diff > 0) {
-        int mid = min + diff;
-        if (x >= mid)
-          min = mid;
-        diff = diff >> 1;
-      }
+      scalar_t x = input[b][c][t] * inv_scale + K,
+          x_trunc = x;
+      if (x_trunc < 0) x_trunc = 0;
+      else if (x_trunc >= N) x_trunc = N - 1;
+      // C++ rounds toward zero.
+      int n = (int) x_trunc;
+      scalar_t x_rounded = (n == 0 ? 1.0 : (scalar_t)n);
       // OK, at this point, 0 <= min < 2*K.
-      scalar_t y = (x - (scalar_t)min) * params_buf[min] + y_vals[min];
+      scalar_t y = (x - x_rounded) * params_buf[n] + y_vals[n];
       output[b][c][t] = y;
     }
   }

@@ -64,18 +64,21 @@ def test_learned_nonlin_deriv():
                 y2 = learned_nonlin(x.to(device), params.to(device), dim = 1).to(torch.device('cpu'))
                 print("Checking CUDA is same")
                 if not torch.allclose(y, y2, atol=1.0e-06):
-                    print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}")
+                    print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}, max-diff = {(y2-y).abs().max()}")
                     assert(0)
 
-            y_deriv = torch.rand_like(y)
+            y_deriv = torch.randn_like(y)
             y.backward(gradient=y_deriv)
 
             delta = 1.0e-04
             delta_x = torch.randn_like(x) * delta
             pred_change = (x.grad * delta_x).sum()
-            observed_change = (y_deriv * (learned_nonlin(x + delta_x, params, dim = 1) - y)).sum()
+            y2 = learned_nonlin(x + delta_x, params, dim = 1)
+            observed_change = (y_deriv * (y2 - y)).sum()
             print(f"for input: pred_change = {pred_change}, observed_change={observed_change}")
-            assert torch.allclose(pred_change, observed_change, rtol=1.0e-02, atol=1.0e-05)
+            if not torch.allclose(pred_change, observed_change, rtol=1.0e-02, atol=1.0e-05):
+                print(f"For changed input, output differs too much: params={params}, input={x}, mod_input={x+delta_x}, y={y}, y2={y2}, diff={y2-y}")
+                assert 0
 
             delta_params = torch.randn_like(params) * delta
             pred_change = (params.grad * delta_params).sum()
