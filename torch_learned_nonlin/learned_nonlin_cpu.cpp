@@ -36,16 +36,17 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
           scalar_t sum_negative = 0.0,
               sum_positive = 0.0,
               scale = exp(params_a[c][0]);
-
           for (int i = 0; i < K; i++) {
-            y_vals_a[c][K + i] = sum_positive * scale;
-            y_vals_a[c][K - i] = sum_negative * scale;
-            sum_positive += params_a[c][1 + K + i];
-            sum_negative -= params_a[c][K - i];
+            y_vals_a[c][K + i] = sum_positive;
+            y_vals_a[c][K - i] = sum_negative;
+            sum_positive += params_a[c][1 + K + i] * scale;
+            sum_negative -= params_a[c][K - i] * scale;
           }
-          // the reference point for the lowest, half-infinite interval (the one
-          // starting at x=-(K-1) is still x=-(K-1); this value is repeated in y_vals.
-          y_vals_a[c][0] = y_vals_a[c][1];
+          // Let the reference point for y_vals_a[c][0] be -K, although the
+          // interval actually starts at -(K-1).  This reference point is
+          // arbitrary but using it makes our lives easier when processing the
+          // data.
+          y_vals_a[c][0] = sum_negative;
         }
 
         auto input_a = input.accessor<scalar_t, 3>(),
@@ -66,11 +67,8 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
               else if (x_trunc >= N) x_trunc = N - 1;
               // C++ rounds toward zero.
               int n = (int) x_trunc;
-              // reference point for the lowest linear region is -(K-1), not -K; this is
-              // why we have to treat n == 0 separately.
-              scalar_t x_rounded = (n == 0 ? 1.0 : (scalar_t)n);
               // OK, at this point, 0 <= min < 2*K.
-              scalar_t y = (x - x_rounded) * params_a[c][n + 1] + y_vals_a[c][n];
+              scalar_t y = (x - n) * params_a[c][n + 1] + y_vals_a[c][n];
               /* printf("x = %f, y = %f, n = %d; y = (%f - %d) * %f+ %f\n", x, y, n,
                    x, n, params_a[c][n + 1], y_vals_a[c][n - 1]); */
               output_a[b][c][t] = y;
@@ -130,8 +128,9 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
             sum_negative -= params_a[c][K - i] * scale;
           }
           // the reference point for the lowest, half-infinite interval (the one
-          // starting at x=-(K-1) is still x=-(K-1); this value is repeated in y_vals.
-          y_vals_a[c][0] = y_vals_a[c][1];
+          // starting at x=-(K-1) is x=-K; this is arbitrary but makes the
+          // computation more regular.
+          y_vals_a[c][0] = sum_negative;
         }
 
         auto input_a = input.accessor<scalar_t, 3>(),
@@ -156,13 +155,11 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
               else if (x_trunc >= N) x_trunc = N - 1;
               // C++ rounds toward zero.
               int n = (int) x_trunc;
-              scalar_t x_rounded = (n == 0 ? 1.0 : (scalar_t)n);
-
               // OK, at this point, 0 <= n < 2*K.
               // backprop for:
               // scalar_t y = (x - (scalar_t)n) * params_a[c][n + 1] + y_vals_a[c][n];
               scalar_t x_grad = y_grad * params_a[c][n + 1];
-              params_grad_a[c][n + 1] += y_grad * x_rounded;
+              params_grad_a[c][n + 1] += y_grad * (x - (scalar_t)n);
               y_vals_grad_a[c][n] += y_grad;
               // backprop for:  x = input * inv_scale + K,
               inv_scale_grad += x_grad * input;
@@ -174,27 +171,22 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
         }
         // Now do the backprop for the loop above where we set y_vals_a.
         for (int c = 0; c < C; c++) {
-          // backprop for: y_vals_a[c][0] = y_vals_a[c][1];
-          y_vals_grad_a[c][1] += y_vals_grad_a[c][0];
           scalar_t scale = exp(params_a[c][0]),
-              inv_scale = 1.0 / scale,
               scale_grad = 0.0,
-              sum_negative_grad = 0.0,
+              sum_negative_grad = y_vals_grad_a[c][0],   // backprop for: y_vals_a[c][0] = sum_negative
               sum_positive_grad = 0.0;
           for (int i = K - 1; i >= 0; i--) {
-            // backprop for: sum_negative -= params_a[c][K - i];
-            params_grad_a[c][K - i] -= sum_negative_grad;
+            // backprop for: sum_negative -= params_a[c][K - i] * scale;
+            params_grad_a[c][K - i] -= sum_negative_grad * scale;
             // backprop for: sum_positive += params_a[c][1 + K + i] * scale;
-            params_grad_a[c][1 + K + i] += sum_positive_grad;
-            // backprop for:  y_vals_a[c][K - i] = sum_negative * scale;
-            sum_negative_grad += y_vals_grad_a[c][K - i] * scale;
-            // The next code line is equivalent to:
-            //  scale_grad += y_vals_grad_a[c][K - i] * sum_negative, substituting:
-            //  sum_negative == y_vals_a[c][K - i] / scale
-            scale_grad += y_vals_grad_a[c][K - i] * y_vals_a[c][K - i] * inv_scale;
-            // backprop for: y_vals_a[c][K + i] = sum_positive * scale;
-            sum_positive_grad += y_vals_grad_a[c][K + i] * scale;
-            scale_grad += y_vals_grad_a[c][K + i] * y_vals_a[c][K + i] * inv_scale;
+            params_grad_a[c][1 + K + i] += sum_positive_grad * scale;
+            // .. and the contributions to scale_grad for the 2 expressions above..
+            scale_grad += (sum_positive_grad * params_a[c][1 + K + i] -
+                           sum_negative_grad * params_a[c][K - i]);
+            // backprop for:  y_vals_a[c][K - i] = sum_negative
+            sum_negative_grad += y_vals_grad_a[c][K - i];
+            // backprop for: y_vals_a[c][K + i] = sum_positive
+            sum_positive_grad += y_vals_grad_a[c][K + i];
           }
           // Backprop for: scale = exp(params_a[c][0]),
           params_grad_a[c][0] += scale * scale_grad;

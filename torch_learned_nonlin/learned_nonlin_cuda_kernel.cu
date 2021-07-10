@@ -148,7 +148,8 @@ void learned_nonlin_kernel(
       y_vals[K + isign] = sum * scale;
       sum += params_buf[Koffset + isign];
     }
-    y_vals[0] = y_vals[1];  // Both threads do this but it's OK.
+    if (threadIdx.x != 0)  // sum_negative
+      y_vals[0] = sum * scale;
   }
   __syncthreads();
   scalar_t inv_scale = params_buf[-3];
@@ -171,9 +172,8 @@ void learned_nonlin_kernel(
       else if (x_trunc >= N) x_trunc = N - 1;
       // C++ rounds toward zero.
       int n = (int) x_trunc;
-      scalar_t x_rounded = (n == 0 ? 1.0 : (scalar_t)n);
       // OK, at this point, 0 <= min < 2*K.
-      scalar_t y = (x - x_rounded) * params_buf[n] + y_vals[n];
+      scalar_t y = (x - n) * params_buf[n] + y_vals[n];
       output[b][c][t] = y;
     }
   }
