@@ -146,7 +146,6 @@ void learned_nonlin_kernel(
     for (int i = 0; i < K; i++) {
       int isign = i * sign;
       y_vals[K + isign] = sum * scale;
-      printf("c = %d, y_vals[%d] = %f\n", c, K + isign, sum * scale);
       sum += params_buf[Koffset + isign];
     }
     y_vals[0] = y_vals[1];  // Both threads do this but it's OK.
@@ -584,10 +583,11 @@ torch::Tensor learned_nonlin_cuda(torch::Tensor input,
 
   int shared_mem_numel = 2 * N + 3;
 
-  std::cout << "C,B,T,N = " << C << "," << B << "," << T << "," << N
-            << ", images_per_thread_block = " << images_per_thread_block
-            << ", grid_dim_y = " << grid_dim_y
-            << "\n";
+  if (false)
+    std::cout << "C,B,T,N = " << C << "," << B << "," << T << "," << N
+              << ", images_per_thread_block = " << images_per_thread_block
+              << ", grid_dim_y = " << grid_dim_y
+              << "\n";
 
   TORCH_CHECK(THREADS_PER_BLOCK / images_per_thread_block >= T ||
               images_per_thread_block == 1,
