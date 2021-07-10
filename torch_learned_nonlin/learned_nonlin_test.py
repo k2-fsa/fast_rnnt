@@ -20,7 +20,17 @@ def test_learned_nonlin_basic():
         print("params = ", params)
         print("x.shape = ", x.shape)
         y = learned_nonlin(x, params, dim = 1)
+
         print("y = ", y)
+
+        if torch.cuda.is_available():
+            # test that the CUDA forward is the same as the CPU forward.
+            device = torch.device('cuda:0')
+            y2 = learned_nonlin(x.to(device), params.to(device), dim = 1).to(torch.device('cpu'))
+            print("Checking CUDA is same")
+            if not torch.allclose(y, y2, atol=1.0e-06):
+                print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}")
+                assert(0);
 
         y.sum().backward()
 
@@ -46,6 +56,16 @@ def test_learned_nonlin_deriv():
             params.requires_grad = True
             print(f"B,C,T,K = {B},{C},{T},{K}")
             y = learned_nonlin(x, params, dim = 1)
+
+
+            if torch.cuda.is_available():
+                # test that the CUDA forward is the same as the CPU forward.
+                device = torch.device('cuda:0')
+                y2 = learned_nonlin(x.to(device), params.to(device), dim = 1).to(torch.device('cpu'))
+                print("Checking CUDA is same")
+                if not torch.allclose(y, y2, atol=1.0e-06):
+                    print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}")
+                    assert(0)
 
             y_deriv = torch.rand_like(y)
             y.backward(gradient=y_deriv)
