@@ -63,7 +63,7 @@ def test_learned_nonlin_deriv():
                 device = torch.device('cuda:0')
                 y2 = learned_nonlin(x.to(device), params.to(device), dim = 1).to(torch.device('cpu'))
                 print("Checking CUDA is same")
-                if not torch.allclose(y, y2, atol=1.0e-06):
+                if not torch.allclose(y, y2, atol=1.0e-05):
                     print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}, max-diff = {(y2-y).abs().max()}")
                     assert(0)
 

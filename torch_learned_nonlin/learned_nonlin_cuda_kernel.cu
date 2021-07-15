@@ -22,9 +22,9 @@
                          blockDim.x, to be used as a temporary within this function.
        val:              The value to be summed
    Return:
-       Threads where blockDim.x % threads_per_tile == 0 will return the sum:
+       Threads where threadIdx.x % threads_per_tile == 0 will return the sum:
          \sum_{i=0}^{threads_per_tile-1} [val in thread threadIdx.x + i]
-       Return value in other threads is undefined.
+       The return value in other threads is undefined.
  */
 template <typename scalar_t>
 __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
@@ -43,8 +43,9 @@ __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
 
 
 /*
-  Forward of learned_nonlin.  Each thread group handles a single channel (equal
-  to blockIdx.x); the gridDim is (C, nb) where 1 <= nb <= B (nb relates to the batch).
+  Forward of learned_nonlin.  Each thread group handles a single channel (channel
+  c = blockIdx.x); the gridDim is (C, nb, 1) where 1 <= nb <= B (nb relates to the
+  image within the batch).
 
   Template args:
       scalar_t: the floating-point type, e.g. float, double, maybe half.
@@ -71,7 +72,7 @@ __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
                 .. this is used for a small optimization.
 
     This kernel is allocated with `extern_buf` containing enough memory
-    to store 2*N values of type scalar_t.
+    to store 2*N + 3 values of type scalar_t.
 
    The blockDim must equal (THREADS_PER_BLOCK, 1, 1)
 
@@ -80,9 +81,10 @@ __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
    1 <=  gridDim.y <= B, where B is the number of blocks
        gridDim.z == 1
   When we invoke this kernel, we'll invoke it as:
-   learned_nonlin_forward<<<gridDim, blockDim, bytesShared, stream>>>
+   learned_nonlin_kernel<<<gridDim, blockDim, bytesShared, stream>>>
    where bytesShared is the number of bytes needed in `extern_buf`:
      bytesShared = sizeof(shared_t) * (2N + 3)
+    We also require N + 1 <= THREADS_PER_BLOCK.
  */
 extern __shared__ int extern_buf[];
 
@@ -98,24 +100,234 @@ void learned_nonlin_kernel(
       C = input.size(1),
       T = input.size(2),
       N = params.size(1) - 1,
-      K = N / 2;  // Note: N and K are powers fo 2, with K >= 1.
+      K = N / 2;  // Note: N and K are powers of 2, with K >= 1.
 
-  const int c = blockIdx.x; // c is channel index
+  const int c = blockIdx.x;  // c is channel index
 
-  scalar_t *y_vals = (scalar_t*) extern_buf,  // [N], actually there are two
+  scalar_t *y_vals = (scalar_t*) extern_buf,  // [N], actually there are 3
                                               // spaces between here and
                                               // `params_buf` for storing scale
-                                              // and inv_scale.
+                                              // and inv_scale and l == params[c][0].
       *params_buf = (scalar_t*) y_vals + 3 + N;  // [N].  Caution: contains params[c][1] through params[c][N].
                                                  //  params_buf[-1] contains params[c][0] == log of scale;
                                                  // params_buf[-2] and params_buf[-3] contain scale and inv_scale.
   // Load parameters
-  for (int n = threadIdx.x; n <= N; n += THREADS_PER_BLOCK) {
-    params_buf[n - 1] = params[c][n];
-  }
+  if (threadIdx.x <= N)
+    params_buf[threadIdx.x - 1] = params[c][threadIdx.x];
+
   __syncthreads();
   // The easiest way to understand this code is to compare it with the CPU code
   // in learned_nonlin_cpu.cpp.
+  // TODO: replace this with easier-to-understand code.
+  if ((((int)threadIdx.x & ~(int)64)) == 0) {
+    // threadIdx.x == 0 or 64 (we choose 64 because it's >= the max known warp
+    // size).  These are in separate warps so we can allow them to do separate
+    // jobs.  This code takes linear time in K which is not at all ideal and
+    // could be improved if K is largish, but it shouldn't dominate the total
+    // time taken if we are processing a lot of data; and anyway, we doubt that
+    // K will be need to be more than 4 or 8 or so, so the potential savings are
+    // quite small.
+    scalar_t scale = exp(params_buf[-1]),
+        inv_scale = 1.0 / scale;
+    params_buf[-2] = scale;  // both threads write these but it's OK, it's the
+                             // same value.
+    params_buf[-3] = inv_scale;
+    int sign,
+        Koffset;  // Koffset == K for threads handling sum_positive and K - 1
+                  // for threads handling sum_negative, see
+                  // learned_nonlin_cpu.cpp for reference code.  This would be K
+                  // + 1 and K respectively, except our params_buf has its index
+                  // shifted by one versus params.
+    if (threadIdx.x == 0) {  // sum_positive
+      sign = 1;
+      Koffset = K;
+    } else {  // threadIdx.x == 64.  sum_negative.
+      scale *= -1;  // this is a local variable..
+      sign = -1;
+      Koffset = K - 1;
+    }
+    scalar_t sum = 0.0;
+    for (int i = 0; i < K; i++) {
+      int isign = i * sign;
+      y_vals[K + isign] = sum * scale;
+      sum += params_buf[Koffset + isign];
+    }
+    if (threadIdx.x != 0)  // sum_negative
+      y_vals[0] = sum * scale;
+  }
+  __syncthreads();
+  scalar_t inv_scale = params_buf[-3];
+
+  int T_inc = THREADS_PER_BLOCK / images_per_thread_block,
+      b_offset = threadIdx.x / T_inc,  // offset within batch
+      t_start = threadIdx.x % T_inc;
+
+  for (int b = blockIdx.y * images_per_thread_block + b_offset; b < B;
+       b += gridDim.y * images_per_thread_block) {
+    // We do "t += THREADS_PER_BLOCK" instead of t += (THREADS_PER_BLOCK /
+    // images_per_thread_block) as a small optimization because the only case we
+    // really need to loop is when images_per_thread_block == 1:a we only let
+    // images_per_thread_block > 1 if T * images_per_thread_block <=
+    // THREADS_PER_BLOCK.
+    for (int t = t_start; t < T; t += THREADS_PER_BLOCK) {
+      scalar_t x = input[b][c][t] * inv_scale + K,
+          x_trunc = x;
+      if (x_trunc < 0) x_trunc = 0;
+      else if (x_trunc >= N) x_trunc = N - 1;
+      // C++ rounds toward zero.
+      int n = (int) x_trunc;
+      // OK, at this point, 0 <= min < N.
+      output[b][c][t] = (x - n) * params_buf[n] + y_vals[n];
+    }
+  }
+
+}
+
+
+
+/*
+  Summing reduction within a one-dimensional thread block, but with a
+  stride of N, so that we separately sum up the values of all threads with
+  threadIdx.x % N == 0, with threadIdx.x % N == 1, and so on.  At the end,
+  threads with 0 <= threadIdx.x < N contain the sums.
+
+  So this is like tiled summing reduction except that the tiles are
+  interspersed with each other.
+
+
+  Args:
+       N:                The number we sum modulo (must be a power of 2 with
+                         1 <= N <= blockDim.x), i.e. all threads with
+                         threadIdx.x % N == n for some 0 <= n < N have `val` summed.
+       buf:              Pointer to the start of a __shared__ buffer of size
+                         blockDim.x, to be used as a temporary within this function.
+       val:              The value to be summed
+  Return:
+       Threads where threadIdx.x < N will return the sums (over the threads with
+       the same value of threadIdx.x % N);
+       the return value in other threads is undefined.
+ */
+template <typename scalar_t>
+__forceinline__ __device__ scalar_t strided_reduce_sum(int N,
+                                                       __volatile__ scalar_t *buf,
+                                                       scalar_t val) {
+  // Each iteration halves the number of active threads
+  // Each thread adds its partial sum[i] to sum[lane+i]
+  for (int i = blockDim.x / 2; i >= N; i /= 2) {
+    buf[threadIdx.x] = val;
+    __syncthreads();
+    if (threadIdx.x < i)
+      val += buf[threadIdx.x + i];
+  }
+  return val; // Only threads with threadIdx.x < N will return the full sums of
+              // their groups.
+}
+
+/*
+  Backward of learned_nonlin.  Each thread group handles a single channel (channel
+  c = blockIdx.x); the gridDim is (C, nb, 1) where 1 <= nb <= B (nb relates to the
+  image within the batch).
+
+  Template args:
+      scalar_t: the floating-point type, e.g. float, double, maybe half.
+
+  Args:
+      input:  input image, shape (B, C, T) where B is batch size, C is
+              the number of channels and T is the time axis.  (For more-than-1d
+              convolution setups, T would really be more than 1 axis, reshaped).
+      params: of shape (C, N+1) where N is the number of linear regions in the
+              piecewise linear function; params[c][0] is l which is
+              a log scale parameter that dictates how far apart
+              the discontinuities in the piecewise linear function are,
+              and params[c][n+1] for 0 <= n < N are the derivatives
+              of the linear parts of the piecewise linear function.
+              The discontinuities of the function are at:
+                   exp(l) * [ -(N/2 - 1), -(N/2 - 2), ... (N/2 - 1) ]
+      output:  The transformed input, shape (B , C, T)
+      images_per_thread_block:  The number of images processed by each thread
+               block.  The calling code must guarantee that this is a power
+               of 2, and that EITHER:
+                   (THREADS_PER_BLOCK / images_per_thread_block >= T  AND
+                    THREADS_PER_BLOCK / images_per_thread_block >= N),
+               OR
+                   images_per_thread_block == 1
+                .. this is used for a small optimization.
+
+                ALSO,
+
+    This kernel is allocated with `extern_buf` containing enough memory
+    to store 2*N + 3 values of type scalar_t.
+
+   The blockDim must equal (THREADS_PER_BLOCK, 1, 1)
+
+   The requirements on the grid dimension are:
+       gridDim.x == num-channels C (required)
+   1 <=  gridDim.y <= B, where B is the number of blocks
+       gridDim.z == 1
+  When we invoke this kernel, we'll invoke it as:
+   learned_nonlin_backward_kernel<<<gridDim, blockDim, bytesShared, stream>>>
+   where bytesShared is the number of bytes needed in `extern_buf`:
+     bytesShared = sizeof(shared_t) * (2N + 3)
+
+   We also require that N <= THREADS_PER_BLOCK (for best performance,
+   N should be quite small, like no larger than 8 or so).
+   We also require 4 <= N <= 16 for this code!
+
+ */
+template <typename scalar_t>
+__global__
+void learned_nonlin_backward_kernel(
+    torch::PackedTensorAccessor32<scalar_t, 3> input,  // B, C, T, i.e. batch, channels, time
+    torch::PackedTensorAccessor32<scalar_t, 2> params,  // C, N + 1
+    torch::PackedTensorAccessor32<scalar_t, 3> output_grad, // B, C, T
+    torch::PackedTensorAccessor32<scalar_t, 3> input_grad, // B, C, T
+    // params_grad is of dim (gridDim.y, C, N + 1), we'll sum over dim 0.
+    torch::PackedTensorAccessor32<scalar_t, 3> params_grad,
+    int images_per_thread_block) {  // B, C, T
+
+  const int B = input.size(0),
+      C = input.size(1),
+      T = input.size(2),
+      N = params.size(1) - 1,
+      K = N / 2;  // Note: N and K are powers fo 2, with K >= 1.
+
+  const int c = blockIdx.x; // c is channel index
+
+  scalar_t *y_vals = (scalar_t*) extern_buf,  // [N], actually there are three
+                                              // spaces between here and
+                                              // `params_buf` for storing scale
+                                              // and inv_scale and l == params[c][0].
+      *params_buf = (scalar_t*) y_vals + 3 + N;  // [N].  Caution: contains params[c][1] through params[c][N].
+                                                 //  params_buf[-1] contains params[c][0] == log of scale;
+                                                 // params_buf[-2] and params_buf[-3] contain scale and inv_scale.
+
+  scalar_t x_residual_buf[THREADS_PER_BLOCK];  // x_residual, with 0 <=
+                                               // x_residual < 1 for interior
+                                               // regions, is the residual part
+                                               // of the scaled input, after
+                                               // subtracting the integer part.
+  scalar_t output_grad_buf[THREADS_PER_BLOCK];
+  char n_buf[THREADS_PER_BLOCK];  // for each input in `input_buf`, this stores
+                                  // the integer value 0 <= n < N which
+                                  // determines which piece of the piecewise
+                                  // linear function we are in.
+
+  // this_params_grad and this_y_grad pertain to the 'n' value (i.e. the n'th
+  // linear interval) corresponding to n == threadIdx.x % N.  For example, if
+  // threadIdx.x == 0, this thread's gradient corresponds to the left-most
+  // linear interval.
+  scalar_t this_params_grad = 0.0,
+      this_y_vals_grad = 0.0;
+
+  // Load parameters
+  if (threadIdx.x <= N)
+    params_buf[threadIdx.x - 1] = params[c][threadIdx.x];
+
+  __syncthreads();
+  // The easiest way to understand this code is to compare it with the CPU code
+  // in learned_nonlin_cpu.cpp.
+
+  // This next block computes `y_vals`.
   if ((((int)threadIdx.x & ~(int)32)) == 0) {
     // threadIdx.x == 0 or 32.  These are in separate warps so we can
     // allow them to do separate jobs.  This code takes linear time in K which
@@ -155,380 +367,180 @@ void learned_nonlin_kernel(
   scalar_t inv_scale = params_buf[-3];
 
   int T_inc = THREADS_PER_BLOCK / images_per_thread_block,
-      image_offset = threadIdx.x / T_inc,
-      t_start = threadIdx.x % T_inc;
+      b_offset = threadIdx.x / T_inc;  // offset within batch
 
-  for (int b = blockIdx.y * images_per_thread_block + image_offset;
-       b < B; b += gridDim.y * images_per_thread_block) {
-    // We do "t += THREADS_PER_BLOCK" instead of t += (THREADS_PER_BLOCK /
-    // images_per_thread_block) as a small optimization because the only case we
-    // really need to loop is when images_per_thread_block == 1:a we only let
-    // images_per_thread_block > 1 if T * images_per_thread_block <=
-    // THREADS_PER_BLOCK.
-    for (int t = t_start; t < T; t += THREADS_PER_BLOCK) {
-      scalar_t x = input[b][c][t] * inv_scale + K,
-          x_trunc = x;
+  for (int b = blockIdx.y * images_per_thread_block + b_offset; b < B;
+       b += gridDim.y * images_per_thread_block) {
+
+    // The following will loop just once if images_per_thread_block > 1.  If
+    // images_per_thread_block == 1 and T > THREADS_PER_BLOCK, we will loop
+    // multiple times.  We want to keep all threads active so that output_grad
+    // will be set to zero for excess threads, and thus won't contribute to
+    // this_params_grad or this_y_vals_grad.
+    for (int t_offset = 0; t_offset < T; t_offset += THREADS_PER_BLOCK) {
+      int t = threadIdx.x % T_inc + t_offset;
+      scalar_t this_output_grad = 0.0, x = 0.0;
+      if (t < T)
+        this_output_grad = output_grad[b][c][t];
+
+      // The reason we use t % T here rather than only invoking this in some
+      // threads, is so that the un-needed threads will have a similar
+      // distribution over 'n' to the needed threads, which will hopefully avoid
+      // excessive work for some particular 'n' value if too many x values had
+      // the same 'n'.  It might be better to set n to an invalid value for
+      // out-of-range threads, but as it is, if we are to properly handle
+      // N==16 we don't have enough bits available in `src_indexes` to do this.
+      x = input[b][c][t % T] * inv_scale + K;
+
+      output_grad_buf[threadIdx.x] = this_output_grad;
+
+      scalar_t x_trunc = x;
       if (x_trunc < 0) x_trunc = 0;
       else if (x_trunc >= N) x_trunc = N - 1;
       // C++ rounds toward zero.
-      int n = (int) x_trunc;
-      // OK, at this point, 0 <= min < 2*K.
-      scalar_t y = (x - n) * params_buf[n] + y_vals[n];
-      output[b][c][t] = y;
-    }
-  }
+      int n = (int)x_trunc;
+      n_buf[threadIdx.x] = (char)n;
 
-}
+      scalar_t x_residual = x - n;
+      x_residual_buf[threadIdx.x] = x_residual;
 
+      // OK, at this point, 0 <= min < N.
+      // The forward code did:
+      // output[b][c][t] = (x - n) * params_buf[n] + y_vals[n];
 
-/*
-  Backward of learned_nonlin.  Each thread group handles a single channel (equal
-  to blockIdx.x), and loops over patches of the output and over the image n
-  within the batch (different thread groups may be responsible for different
-  subsets of patches and/or images, see docs of gridDim below).
+      if (t < T)
+        input_grad[b][c][t] = this_output_grad * params_buf[n];
 
-  If you want to understand this code, you should first understand the forward
-  code.  Here are some points to understand how this works:
-
-  First, understand the difference between the patch of size patchH by
-  patchW, which is the basic patch size that is related to the blockDim.x,
-  and the padded patch size ppatchH and ppatchW, where:
-     ppatchH = patchH + kH - 1
-     ppatchW = patchW + kW - 1.
-
-  In the forward pass, we dealt with a patch of output and a padded patch of
-  input.  In this backward-pass code, when computing the `grad_input` we deal
-  with a patch of input and a padded patch of output (this ensures that
-  different thread-blocks write to distinct patches of `grad_input`).  But this
-  approach is not sufficient to update `grad_pos_add` and `grad_pos_mul`,
-  because it's possible for elements of the zero-padding of `input` to
-  contribute to `grad_pos_add` and `grad_pos_mul`.  So when computing the
-  gradients for those quantities, we actually use a padded input patch and an
-  un-padded output patch.  This requires that we load into shared memory the
-  padded versions of both input and grad_output.
+      int this_block_start = threadIdx.x & ~(N-1),  // ==  N * (threadIdx.x / N),
+          this_n = threadIdx.x & (N-1); // == threadIdx.x % N.
+      // this_n is the n value that this thread accumulates gradients for;
+      // it is responsible for output_grads in the block of threads
+      // from this_block_start to this_block_start+N-1.
 
 
-  Template args:
-      scalar_t: the floating-point type, e.g. float, double, maybe half.
+      // SYNC POINT At this point there is an implicit within-warp
+      // synchronization (Note: implicit warp synchronization is considered not
+      // future-proof).  Threads above have written to n_buf, and threads below
+      // will read from it; but we don't need to explicitly synchronize for now
+      // because the reads/writes are among threads in a group of N threads with
+      // (4 <= N <= 16); and 16 is less than the warp size which is 32 or 64.
 
-  Args:
-      input [in]:  input image, shape (N, 2*C, H, W)
-      pos_add [in]:  positional encoding, additive part,  shape (C, kH, kW)
-      pos_mul [in]:  positional encoding, multiplicative part, shape (C, kH, kW)
-      grad_output [in]: the gradient w.r.t. the output of the forward pass, shape (N, C, H, W)
-      grad_input [out]: the gradient w.r.t. the input, of shape N, 2*C, H, W
-      grad_pos_add [out]: the gradient w.r.t. pos_add, indexed [block][c][kh][kw],
-            of shape num_blocks, C, kH, kW,
-            where `block` is an index we'll later sum over, that corresponds to
-            the identity of the thread-block (except, not including the channel
-            dimension == gridDim.x).  So, block == blockIdx.z * gridDim.y + blockIdx.y,
-            and num_blocks == gridDim.y * gridDim.z.
-      grad_pos_mul [out]: the gradient w.r.t. pos_mul, like grad_pos_add above.
-      patchH: the height of the patch size this kernel operates on (prior to padding)
-      patchW: the width of the patch size this kernel operates on (prior to padding)
-      threads_per_pixel: the number of threads assigned to compute each pixel
-              of grad_input.  Require patchH * patchW * threads_per_pixel <= blockDim.x
-              and threads_per_pixel must be a power of 2 in the interval [1,32].
-      threads_per_kernel_pos: the number of threads assigned to compute each kernel
-              position of grad_pos_add and grad_pos_mul.
-              Require kH * kW * threads_per_kernel_pos <= blockDim.x,
-              and threads_per_kernel_pos must be a power of 2 in the interval [1,32].
-              This requires that kH * kW must not be greater than 1024.
+      // src_indexes will contain up to 16 16-bit numbers, stored starting in its
+      // least significant bits.  It will store all the offsets within this
+      // block of N, where the 'n' value equals this_n.
+      uint64_t src_indexes = 0;
+      // num_src is the number of numbers in `src_indexes`.  We need to store a
+      // separate counter because zero is a valid index and if we are to support
+      // N == 16 we don't have bits to spare in src_indexes to store some kind
+      // of marker.
+      int num_src = 0;
 
-  Note: kH and kW must both be odd so that it's clear how to zero-pad.
-
-  The thread-block should have one dimension (x); see docs for threads_per_pixel
-  and threads_per_kernel_pos for requirements on blockDim.x.  Also, blockDim.x
-  must be an exact multiple of 64, so we can divide the threads by 2 and they
-  will be in different warps.
-
-  The requirements on the grid dimension are:
-       gridDim.x == num-channels C (required)
-       gridDim.y <= num-patches per image (recommended)
-       gridDim.z <= batch-size N (recommended)
-  When we invoke this kernel, we'll invoke it as:
-   learned_nonlin_forward<<<gridDim, blockDim, bytesShared, stream>>>
-  where bytesShared is the number of bytes needed in `extern_buf`:
-
-   bytesShared = sizeof(shared_t) * numel, where
-    numel = 4 * (kH * kW) + 3 * (ppatchH * ppatchW) + blockDim.x
- */
-template <typename scalar_t>
-__global__
-void learned_nonlin_kernel_backward(
-    torch::PackedTensorAccessor32<scalar_t, 4> input,  // N, 2*C, H, W
-    torch::PackedTensorAccessor32<scalar_t, 3> pos_add,  // C, kH, kW
-    torch::PackedTensorAccessor32<scalar_t, 3> pos_mul,  // C, kH, kW
-    torch::PackedTensorAccessor32<scalar_t, 4> grad_output,  // N, C, H, W
-    torch::PackedTensorAccessor32<scalar_t, 4> grad_input,  // N, 2*C, H, W
-    torch::PackedTensorAccessor32<scalar_t, 4> grad_pos_add, // block, C, kH, kW, see above for `block`
-    torch::PackedTensorAccessor32<scalar_t, 4> grad_pos_mul, // block, C, kH, kW, see above for `block`
-    int patchH,  // non-padded patch height
-    int patchW,  // non-padded patch width
-    int threads_per_pixel,
-    int threads_per_kernel_pos) {
-
-  const int H = input.size(2),
-      W = input.size(3),
-      kH = pos_add.size(1),
-      kW = pos_add.size(2),
-      npatchH = (H + patchH - 1) / patchH,  // num patches in vertical dim
-      npatchW = (W + patchW - 1) / patchW,  // num patches in horizontal dim
-      npatch = npatchH * npatchW;  // total number of patches per image
-
-  // Channel index.
-  const int c = blockIdx.x;
-  // We don't need to check the range of `c` because we set gridDim.x to the
-  // exact number of channels.
-
-  const int ppatchH = patchH + kH - 1,  // ppatchH is the padded patch height.
-      ppatchW = patchW + kW - 1,  // ppatchW is the padded patch width
-      patch_size = patchH * patchW,  // un-padded patch size
-      ppatch_size = ppatchH * ppatchW;  // padded patch size
-
-  // `extern_buf` is general-purpose shared memory, which we'll divide between
-  // various buffers.
-
-  // these are pointers to __shared__ memory; the compiler should
-  // be able to figure this out.
-  scalar_t
-      *pos_add_buf = (scalar_t*)extern_buf,     // pos_add positional-encoding / kernel parameters,
-                                // indexed [kh*kW + kw] where kh and kw are vertical
-                                // and horizontal positions in the kernel.
-      *pos_mul_buf = pos_add_buf + (kH * kW), // pos_mul positional-encoding / kernel parameters,
-                                              // indexed [kh*kW + kw] where kh and kw are vertical
-                                              // and horizontal positions in the kernel.
-      *src_img_buf = pos_mul_buf + (kH * kW),    // version of input image that relates to source position,
-                             // of size [ppatch_size], indexed [h*ppatchW + w],
-                             // where the 'h' and 'w' indexes are into the zero-padded input
-                             // image.
-      *dest_img_buf = src_img_buf + ppatch_size,  // version of input image that relates to destinatioon position
-      *grad_output_buf = dest_img_buf + ppatch_size, // output gradient for padded patch, indexed [h*ppatchW + w]
-      *grad_pos_add_buf = grad_output_buf + ppatch_size,  // total grad for pos_add for this thread block, indexed [kh*kW + kw]
-      *grad_pos_mul_buf = grad_pos_add_buf + (kH * kW),  // total grad for pos_mul for this thread block, indexed [kh*kW + kw]
-      *reduce_buf = grad_pos_mul_buf + (kH * kW);  // buffer for reduction over threads, size == blockDim.x
-
-
-  // pos_in_patch will be interpreted as h_in_patch * patchW + w_in_patch.
-  int pos_in_patch = threadIdx.x / threads_per_pixel;
-
-  // Load parts of the kernel parameters pos_add and pos_mul into shared memory,
-  // in pos_add_buf and pos_mul_buf; zero the corresponding gradient buffers.
-  // We know that blockDim.x >= kH * kW, see threads_per_kernel_pos.
-
-  for (int i = threadIdx.x % (blockDim.x / 2); i < kH * kW; i += (blockDim.x / 2)) {
-    int kh = i / kW, kw = i % kW;
-    if (threadIdx.x < blockDim.x / 2) {  // First half of threads take care of pos_add..
-      pos_add_buf[i] = pos_add[c][kh][kw];
-      grad_pos_add_buf[i] = 0.0;
-    } else {  // Second half take care of pos_mul... there is no warp divergence
-              // because we make sure blockDim.x is a multiple of 64.
-      pos_mul_buf[i] = pos_mul[c][kh][kw];
-      grad_pos_mul_buf[i] = 0.0;
-    }
-  }
-
-  // n is the index within the batch of images.  Loop to make sure we cover all
-  // images in the batch.  input.size(0) is the batch size N.  All threads in
-  // the thread-block loop the same number of times.
-  for (int n = blockIdx.z; n < input.size(0); n += gridDim.z) {
-
-    // Loop over the patch within the output image.  All threads in the
-    // thread-block loop the same number of times.
-    for (int patch_idx = blockIdx.y; patch_idx < npatch; patch_idx += gridDim.y) {
-      // (patch_h_offset, patch_w_offset) are the (vertical, horizontal) indexes
-      // of the lowest-numbered pixel in the *un-padded* patch that this thread
-      // block is responsible for.  (We'll actualy be loading the padded patches
-      // into memory, so be careful).
-      int patch_h_offset = (patch_idx / npatchW) * patchH,
-          patch_w_offset = (patch_idx % npatchW) * patchW;
-
-      // This __syncthreads() is only necessary if we have already looped at
-      // least once over n or patch_idx: it's in case other threads are still
-      // using the `src_img_buf` or `dst_img_buf` buffers for a previous patch.
-      __syncthreads();
-
-      // Load the 'src' and 'dest' versions of the padded patch into
-      // shared-memory buffers, and also the output gradient.
-      for (int i = threadIdx.x % (blockDim.x / 2);
-           i < ppatch_size; i += (blockDim.x / 2)) {
-        int h_in_ppatch = i / ppatchW,
-            w_in_ppatch = i % ppatchW;
-        int h = patch_h_offset + h_in_ppatch - (kH / 2),  // kH / 2 is offset due to padding
-            w = patch_w_offset + w_in_ppatch - (kW / 2);
-
-        if (threadIdx.x < blockDim.x / 2) {  // The first half of the threads of the block
-                                             // load `input`
-          scalar_t src_val = scalar_t(0),
-              dest_val = scalar_t(0);
-          if ((unsigned int)h < (unsigned int)H &&  // h >= 0 && h < H
-              (unsigned int)w < (unsigned int)W) {  // w >= 0 && w < W
-            int C = grad_output.size(1);
-            src_val = input[n][c][h][w];
-            dest_val = input[n][c + C][h][w];
+      // This loop always does N statements, but they should be relatively fast
+      // ones since the computation per n value is minimal and there is little
+      // I/O.  We are figuring out the subset of our block of N elements,
+      // which this particular thread value is responsible for (because they
+      // have n == this_n), and storing them in `src_indexes` and `num_src`.
+      for (int i = 0; i < N; i += 4) {
+        uint32_t n_block_of_4 = *reinterpret_cast<uint32_t*>(n_buf + this_block_start + i);
+        #pragma unroll
+        for (int j = 0; j < 4; ++j) {
+          // CUDA is little endian
+          char n = (char)(n_block_of_4 >> (8*j));
+          if (n == this_n) {
+            // We require that N <= 16, so 4 bits is enough to store src_idx.
+            src_indexes = (src_indexes << 4) | (i + j);
+            ++num_src;
           }
-          src_img_buf[i] = src_val;
-          dest_img_buf[i] = dest_val;
-        } else {  // second half of threads load `grad_output`.  We require
-                  // blockDim.x be an even multiple of the warp size, so there
-                  // is no warp divergence here.
-          scalar_t grad_output_val = scalar_t(0);
-          if ((unsigned int)h < (unsigned int)H &&
-              (unsigned int)w < (unsigned int)W)
-            grad_output_val = grad_output[n][c][h][w];
-          grad_output_buf[i] = grad_output_val;
-        }
-      }
-      // make sure all threads haave written to `src_img_buf`, `dest_img_buf` and
-      // `grad_output_buf`.
-      __syncthreads();
-
-      scalar_t grad_input_src_sum = 0.0,  // grad for channel c, for our pixel
-                                          // of `input` (contribution of this
-                                          // thread)
-          grad_input_dest_sum = 0.0;   // grad for channel c + C, for our pixel
-                                       // of `input` (contribution of this thread)
-      if (pos_in_patch < patch_size) {
-        // This block computes `grad_input_src_sum` and `grad_input_dest_sum`
-        // The num-threads for the backward kernel may not be an exact multiple
-        // of patch_size, wo we need the if-guard.
-
-        int h_in_patch = pos_in_patch / patchW,
-            w_in_patch = pos_in_patch % patchW,
-            h_in_ppatch = h_in_patch + kH / 2,
-            w_in_ppatch = w_in_patch + kW / 2,
-            pos_in_ppatch = h_in_ppatch * ppatchW + w_in_ppatch;
-
-        // this_dest_val is the `destination` version of our current pixel; this
-        // is an input.  It gets added to each src pixel, prior to the relu, in
-        // the loop below.
-        // this_src_val is the `src` version of our current pixel; it contributes
-        // to the outputs of other pixels.
-        scalar_t this_dest_val = dest_img_buf[pos_in_ppatch],
-            this_src_val = src_img_buf[pos_in_ppatch];
-
-        for (int pos_in_kernel = threadIdx.x % threads_per_pixel;
-             pos_in_kernel < (kH * kW);
-             pos_in_kernel += threads_per_pixel) {
-
-          int h_in_kernel = pos_in_kernel / kW,
-              w_in_kernel = pos_in_kernel % kW;
-
-          // This is actually more like cross-correlation, as we don't have a
-          // negative sign on the h and w indexes in the kernel.
-          int src_h_in_ppatch = h_in_patch + h_in_kernel,
-              src_w_in_ppatch = w_in_patch + w_in_kernel;
-          int src_pos_in_ppatch = src_h_in_ppatch * ppatchW + src_w_in_ppatch;
-
-          scalar_t src_val = src_img_buf[src_pos_in_ppatch],
-              pos_add_val = pos_add_buf[pos_in_kernel],
-              pos_mul_val = pos_mul_buf[pos_in_kernel];
-          scalar_t relu = (src_val + this_dest_val + pos_add_val);
-          if (relu >= 0.0) {
-            scalar_t this_grad_output = grad_output_buf[pos_in_ppatch];
-            grad_input_dest_sum += this_grad_output * pos_mul_val;
-          }
-          // To compute a contribution to "this_input_src_grad", we need to
-          // consider the contribution to the destination pixel that it would
-          // have contributed to with this same offset.
-          // We have to flip the offsets: instead of "+ h_in_kernel",
-          // we use (kH - 1) - h_in_kernel,.
-          int dest_h_in_ppatch = h_in_patch + (kH - 1) - h_in_kernel,
-              dest_w_in_ppatch = w_in_patch + (kW - 1) - w_in_kernel,
-              dest_pos_in_ppatch = dest_h_in_ppatch * ppatchW + dest_w_in_ppatch;
-          scalar_t dest_val = dest_img_buf[dest_pos_in_ppatch];
-          relu = dest_val + this_src_val + pos_add_val;
-          if (relu >= 0.0) {
-            scalar_t dest_grad_output = grad_output_buf[dest_pos_in_ppatch];
-            grad_input_src_sum += dest_grad_output * pos_mul_val;
-          }
-        }
-      }
-      // Aggregate `grad_input_src_sum` over threads, if needed; and write the
-      // result to `grad_input`.
-      // h and w are un-padded indexes into the entire image.
-      int h = patch_h_offset + pos_in_patch / patchW,
-          w = patch_w_offset + pos_in_patch % patchW;
-
-      if (h < H && w < W) {
-        grad_input_src_sum = tiled_warp_reduce_sum(threads_per_pixel,
-                                                   reduce_buf,
-                                                   grad_input_src_sum);
-        grad_input_dest_sum = tiled_warp_reduce_sum(threads_per_pixel,
-                                                    reduce_buf,
-                                                    grad_input_dest_sum);
-        if (threadIdx.x % threads_per_pixel == 0) {
-          grad_input[n][c][h][w] = grad_input_src_sum;
-          int C = grad_output.size(1);
-          grad_input[n][c + C][h][w] = grad_input_dest_sum;
+          // Note: if, for out-of-range threads, we had values not in [0..N-1] in
+          // n_buf they won't end up mattering even though they are read here,
+          // because they won't equal this_n.  For values 0 <= n < N originating
+          // in out-of-range threads, the value won't matter because the
+          // corresponding value in output_grad_buf will be zero.
         }
       }
 
-      // OK, we are done computing grad_input for this patch.  Now
-      // we need to contribute the contributions to grad_pos_add_buf
-      // and grad_pos_mul_buf for this patch.
-      // 0 <= pos_in_kernel < (kH * kW).
-      int pos_in_kernel = threadIdx.x / threads_per_kernel_pos;
-      scalar_t this_grad_pos_add = 0.0,
-              this_grad_pos_mul = 0.0;
-      if (pos_in_kernel < (kH * kW)) {
-        int kh = pos_in_kernel / kW,
-            kw = pos_in_kernel % kW;
-
-        // This group of (threads_per_kernel_pos) threads is responsible
-        // for position (kh, kw) in the kernel; we iterate over the patch
-        // (an un-padded patch of output).
-        scalar_t pos_add_val = pos_add_buf[pos_in_kernel],
-                 pos_mul_val = pos_mul_buf[pos_in_kernel];
-
-        for (int pos_in_patch = threadIdx.x % threads_per_kernel_pos;
-             pos_in_patch < patch_size; pos_in_patch += threads_per_kernel_pos) {
-          // We are working out the contribution to the gradients for pos_add
-          // and pos_mul; we let `pos_in_patch` correspond to the *output*
-          // position, and work out the input position based on gthe kernel position.
-
-          int h_in_patch = pos_in_patch / patchW,
-              w_in_patch = pos_in_patch % patchW;
-
-          // pos_in_ppatch is the position in the padded patch corresponding to
-          // `pos_in_patch`.
-          int pos_in_ppatch = (h_in_patch + kH / 2) * ppatchW + (w_in_patch + kW / 2);
-          scalar_t dest_val = dest_img_buf[pos_in_ppatch];
-          int src_pos_in_ppatch = (h_in_patch + kh) * ppatchW + (w_in_patch + kw);
-          scalar_t src_val = src_img_buf[src_pos_in_ppatch];
-
-          scalar_t relu = dest_val + src_val + pos_add_val;
-          if (relu >= 0.0) {
-            scalar_t this_grad_output = grad_output_buf[pos_in_ppatch];
-            this_grad_pos_add += this_grad_output * pos_mul_val;
-            this_grad_pos_mul += this_grad_output * relu;
-          }
-        }
-        this_grad_pos_add = tiled_warp_reduce_sum(
-            threads_per_kernel_pos, reduce_buf, this_grad_pos_add);
-        this_grad_pos_mul = tiled_warp_reduce_sum(
-            threads_per_kernel_pos, reduce_buf, this_grad_pos_mul);
-        if (threadIdx.x % threads_per_kernel_pos == 0) {
-          grad_pos_add_buf[pos_in_kernel] += this_grad_pos_add;
-          grad_pos_mul_buf[pos_in_kernel] += this_grad_pos_mul;
-        }
+      // While num_src could theoretically be as large as N, the hope is that no
+      // thread in any given warp actually loops that many times.  Once all
+      // threads in the warp are finished looping, we can continue.  It is OK
+      // for different warps to get out of sync here; we could be looping over a
+      // number of images, and the hope is that different warps will reach the
+      // end of the outer loop at around the same time because their variations
+      // in speed will average out.
+      for (; num_src > 0; --num_src, src_indexes >>= 4) {
+        int src_idx = src_indexes & 0xF,
+            src_thread = this_block_start + src_idx;
+        scalar_t output_grad = output_grad_buf[src_thread],
+            x_residual = x_residual_buf[src_thread];
+        // Backprop for: output = x_residual * params_buf[n] + y_vals[n].
+        // Here, n == this_n; this is how we selected these `src_idx` values.
+        this_params_grad += output_grad * x_residual;
+        this_y_vals_grad += output_grad;
       }
     }
   }
 
-  __syncthreads(); // make sure all threads have written to grad_pos_add_buf and
-                   // grad_pos_mul_buf.
-  int block = blockIdx.z * gridDim.y + blockIdx.y;
+  __syncthreads();  // sync threads because we are about to re-use
+                    // output_grad_buf for reduction.
 
-  int kernel_pos = threadIdx.x;
-  if (kernel_pos < (kH * kW)) {
-    int kh = kernel_pos / kW,
-        kw = kernel_pos % kW;
-    grad_pos_add[block][c][kh][kw] = grad_pos_add_buf[kernel_pos];
-    grad_pos_mul[block][c][kh][kw] = grad_pos_mul_buf[kernel_pos];
+  this_params_grad = strided_reduce_sum(N, output_grad_buf, this_params_grad);
+  this_y_vals_grad = strided_reduce_sum(N, output_grad_buf, this_y_vals_grad);
+
+  __syncthreads();  // sync threads because we are about to re-use
+                    // output_grad_buf.
+
+  // Re-use some buffers..
+  scalar_t *params_grad_buf = x_residual_buf,  // [N]
+      *y_vals_grad_buf = output_grad_buf;   // [N]
+
+  if (threadIdx.x < N) {
+    // There is an offset of 1 between the 'n' values and
+    // the position in 'params'.  To keep the backprop code similar to the CPU
+    // backprop code we restore that offset here, i.e. use the same layout
+    // as the params.
+    params_grad_buf[threadIdx.x + 1] = this_params_grad;
+    y_vals_grad_buf[threadIdx.x] = this_y_vals_grad;
+  }
+
+
+  // This next block does backprop relating to `y_vals`.  Comparing with the CPU
+  // version (call this the "reference code") is the best way to understand this (this code is just a
+  // modification of that).
+  {
+    // Thread 0 is responsible for parts of the reference code that involve "sum_positive_grad";
+    // thread 64 is responsible for parts of the reference code that involve "sum_negative_grad";
+    scalar_t scale_grad = 0.0,
+        scale = params_buf[-2];
+
+    if (threadIdx.x == 0) {
+      scalar_t sum_positive_grad = 0.0;
+      for (int i = K - 1; i >= 0; i--) {
+        // This is like the CPU code but with an offset of 1 for 'params_buf'
+        // versus 'params_a'.
+        params_grad_buf[1 + K + i] += sum_positive_grad * scale;
+        scale_grad += sum_positive_grad * params_buf[K + i];
+        sum_positive_grad += y_vals_grad_buf[K + i];
+      }
+      params_grad_buf[0] += scale * scale_grad;
+    } else if (threadIdx.x == 64) {
+      scalar_t sum_negative_grad = y_vals_grad_buf[0];
+      for (int i = K - 1; i >= 0; i--) {
+        // This is like the CPU code but with an offset of 1 for 'params_buf'
+        // versus 'params_a'.
+        params_grad_buf[K - i] -= sum_negative_grad * scale;
+        scale_grad -= sum_negative_grad * params_buf[K - 1 - i];
+        sum_negative_grad += y_vals_grad_buf[K - i];
+      }
+    }
+    __syncthreads();
+    if (threadIdx.x == 64)
+      params_grad_buf[0] += scale * scale_grad;
+    __syncthreads();
+  }
+
+  if (threadIdx.x <= N) {
+    params_grad[blockIdx.y][c][threadIdx.x] = params_grad_buf[threadIdx.x];
   }
 }
-
 
 
 
@@ -556,9 +568,7 @@ torch::Tensor learned_nonlin_cuda(torch::Tensor input,
   auto scalar_t = input.scalar_type();
   auto opts = torch::TensorOptions().dtype(scalar_t).device(input.device());
 
-  // TODO: make this empty
-
-  torch::Tensor output = torch::ones({B, C, T}, opts);
+  torch::Tensor output = torch::empty({B, C, T}, opts);
 
   if (C * B * T == 0)
     return output;
@@ -592,6 +602,8 @@ torch::Tensor learned_nonlin_cuda(torch::Tensor input,
               images_per_thread_block == 1,
               "Code error");
 
+  TORCH_CHECK(N + 1 <= THREADS_PER_BLOCK,
+              "Values of N this large are not supported.");
 
   dim3 gridDim(C, grid_dim_y, 1);
 
@@ -610,165 +622,89 @@ torch::Tensor learned_nonlin_cuda(torch::Tensor input,
 
 std::vector<torch::Tensor> learned_nonlin_backward_cuda(torch::Tensor input,
                                                         torch::Tensor params,
-                                                        torch::Tensor grad_output) {
+                                                        torch::Tensor output_grad) {
+  TORCH_CHECK(input.dim() == 3, "input must be 3-dimensional");
+  TORCH_CHECK(params.dim() == 2, "params must be 2-dimensional.");
+  TORCH_CHECK(params.size(1) >= 3 &&
+              ((params.size(1) - 1) & (params.size(1) - 2)) == 0,
+              "params.size(1) has invalid value, must be a power of 2 plus 1.");
+  TORCH_CHECK(params.size(0) == input.size(1),
+              "params vs input channels mismatch");
+  TORCH_CHECK(output_grad.dim() == 3 && output_grad.size(0) == input.size(0) &&
+              output_grad.size(1) == input.size(1) &&
+              output_grad.size(2) == input.size(2),
+              "output_grad and input have mismatched dim.");
 
-  /*
-  TORCH_CHECK(input.dim() == 4, "input must be 4-dimensional");
-  TORCH_CHECK(pos_add.dim() == 3, "pos_add must be 3-dimensional.");
-  TORCH_CHECK(pos_mul.dim() == 3, "pos_add must be 3-dimensional.");
   TORCH_CHECK(input.device().is_cuda(), "Input must be a CUDA tensor");
-  const int N = input.size(0),
-      C = input.size(1) / 2,
-      H = input.size(2),
-      W = input.size(3),
-      kH = pos_add.size(1),
-      kW = pos_add.size(2);
-  TORCH_CHECK(kH % 2 == 1 && kW % 2 == 1);
-  TORCH_CHECK(input.size(1) % 2 == 0, "Input must have even num-channels");
-  TORCH_CHECK(pos_add.size(0) == C && pos_mul.size(0) == C &&
-              pos_mul.size(1) == kH && pos_mul.size(2) == kW,
-              "Input sizes mismatch.");
-  TORCH_CHECK(pos_add.device() == input.device() &&
-              pos_mul.device() == pos_add.device(),
-              "Input devices mismatch");
+  TORCH_CHECK(output_grad.device().is_cuda(), "output_grad must be a CUDA tensor");
+  TORCH_CHECK(params.device().is_cuda(), "Params must be a CUDA tensor");
+
+
+  const int B = input.size(0),
+      C = input.size(1),
+      T = input.size(2),
+      N = params.size(1) - 1;
+
+  TORCH_CHECK(N >= 4, "This backward code requires N >= 4");
+  TORCH_CHECK(N <= 16, "This backward code currently requires N <= 16");
+
   auto scalar_t = input.scalar_type();
-  TORCH_CHECK(pos_add.scalar_type() == scalar_t &&
-              pos_mul.scalar_type() == scalar_t,
-              "Input dtypes mismatch");
-  TORCH_CHECK(grad_output.dim() == 4 && grad_output.size(0) == N
-              && grad_output.size(1) == C && grad_output.size(2) == H
-              && grad_output.size(3) == W);
+  auto opts = torch::TensorOptions().dtype(scalar_t).device(input.device());
 
 
-  // Work out the configuration to call the kernel with..
-  int patchH = std::min(H, kH),  // output patch height
-      patchW = std::min(W, kW);  // output patch width
-  // We don't want the height or width of the patch to be less than the kernel
-  // width, or the padding will make the input-patch size more than twice the
-  // output-patch size.
-  // We aim for the output-patch size to be more than 128; this is not something
-  // very exact, but it roughly corresponds to us wanting to have up to 4 threads
-  // per output pixel, and the limitation of 512 threads per thread-block which
-  // we impose so that we can run on architectures with little shared memory.
-  while (patchW < W && patchH * (patchW + 1) <= 128)
-    patchW++;
-  while(patchH < H && (patchH + 1) * patchW <= 128)
-    patchH++;
+  torch::Tensor input_grad = torch::empty({B, C, T}, opts);
 
-  // We are assuming that the thread-block size can be as large as 512; this
-  // works even on old CUDA architectures.
-  int threads_per_pixel;
-  if (patchH * patchW * 4 <= 512 && (kH * kW) > 8)
-    threads_per_pixel = 4;
-  else if (patchH * patchW * 2 <= 512 && (kH * kW) > 4)
-    threads_per_pixel = 2;
-  else
-    threads_per_pixel = 1;
-
-  int threads_per_block = patchH * patchW * threads_per_pixel;
-  // round threads_per_block up to a multiple of 64.  We need it to be
-  // equivalent to an even number of warps, because at one point we divide the
-  // threads into two halves and we want them to be an even number of warps.
-  threads_per_block = 64 * ((threads_per_block + 63) / 64);
-
-  {
-    // If it's possible to increase the patch width or height while not exceeding
-    // this number of threads, do so.  (This is a small optimization).
-    int patchW_old = patchW;
-    while (patchH * (patchW + 1) * threads_per_pixel <= threads_per_block)
-      patchW++;
-    // If the above change to patchW did not actually reduce the number of patches
-    // needed to cover the image, gthen there is no point to the change; and it
-    // increases the shared-memory requirement, so revert it.
-    if ((W + patchW_old - 1) / patchW_old == (W + patchW - 1) / patchW)
-      patchW = patchW_old;
-    int patchH_old = patchH;
-    while ((patchH + 1) * patchW * threads_per_pixel <= threads_per_block)
-      patchH++;
-    if ((H + patchH_old - 1) / patchH_old == (H + patchH - 1) / patchH)
-      patchH = patchH_old;
+  if (C * B * T == 0) {
+    return std::vector<torch::Tensor>({input_grad,
+            torch::empty({C, N + 1})});
   }
 
+  int images_per_thread_block = 1;
+  while (images_per_thread_block * 2 * T <= THREADS_PER_BLOCK &&
+         images_per_thread_block * 2 * N <= THREADS_PER_BLOCK)
+    images_per_thread_block *= 2;
 
-  int threads_per_kernel_pos = 1;
-  while (threads_per_kernel_pos < 32 &&
-         threads_per_kernel_pos * 2 * kH * kW <= threads_per_block)
-    threads_per_kernel_pos *= 2;
+  int grid_dim_y = 1;
+  // If the number of channels is quite small (<128) we can launch more thread
+  // groups, splitting on the batch index.
+  while (C * grid_dim_y < 128)
+    grid_dim_y *= 2;
 
-  // dimensions of padded patches
-  int ppatchH = patchH + kH - 1,
-       ppatchW = patchW + kW - 1,
-   ppatch_size = ppatchH * ppatchW;
+  // B_reduced is the max number of thread-groups per channel that would have
+  // any work to do.  If grid_dim_y is more than this, we reduce it to avoid
+  // launching kernels with nothing to do.
+  int B_reduced = (B + images_per_thread_block - 1) / images_per_thread_block;
+  if (grid_dim_y > B_reduced)
+    grid_dim_y = B_reduced;
 
-  int buffer_numel = 4 * (kH * kW) + 3 * ppatch_size + threads_per_block;
+  int shared_mem_numel = 2 * N + 3;
 
-  int num_patches_H = (H + patchH - 1) / patchH,
-      num_patches_W = (W + patchW - 1) / patchW,
-      num_patches = num_patches_H * num_patches_W;
+  if (false)
+    std::cout << "C,B,T,N = " << C << "," << B << "," << T << "," << N
+              << ", images_per_thread_block = " << images_per_thread_block
+              << ", grid_dim_y = " << grid_dim_y
+              << "\n";
 
-  // gridDim.x == C.
-  int num_blocks_patch = 1,  // gridDim.y.  should not be more
-      num_blocks_batch = 1;  // gridDim.z
-  // We have a rough target of no more than 256 thread-groups.
-  while (C * num_blocks_patch * 2 <= 256 &&
-         num_blocks_patch * 2 <= num_patches)
-    num_blocks_patch *= 2;
-  if (C * num_patches <= 512)
-    num_blocks_patch = num_patches;
-  while (C * num_blocks_patch * num_blocks_batch * 2 <= 256 &&
-         num_blocks_batch * 2 <= N)
-    num_blocks_batch *= 2;
-
-  assert(num_blocks_patch <= num_patches && num_blocks_batch <= N);
-  assert(patchH * patchW * threads_per_pixel <= threads_per_block);
-  assert(kH * kW * threads_per_kernel_pos <= threads_per_block);
-
-  static int debug_count = 50;
-  if (debug_count > 0) {
-    debug_count--;
-    std::cout << "[backward:] N,C,H,W=" << N << "," << C << "," << H << "," << W
-              << "; kW,kH=" << kW << "," << kH
-              << "; patchH,patchW=" << patchH << ","
-              << patchW << ", num_blocks_patch="
-              << num_blocks_patch << ", num_blocks_batch="
-              << num_blocks_batch
-              << ", threads_per_pixel=" << threads_per_pixel
-              << ", threads_per_kernel_pos=" << threads_per_kernel_pos
-              << ", threads_per_block=" << threads_per_block
-              << ", buffer_numel=" << buffer_numel
-              << std::endl;
-  }
-
-  int num_blocks = num_blocks_patch * num_blocks_batch;
-
-  torch::Tensor grad_input = torch::zeros({N, 2*C, H, W},
-                                          torch::TensorOptions().dtype(scalar_t).device(input.device())),
-      grad_pos_add = torch::zeros({num_blocks, C, kH, kW},
-                                  torch::TensorOptions().dtype(scalar_t).device(input.device())),
-      grad_pos_mul = torch::zeros({num_blocks, C, kH, kW},
-                                  torch::TensorOptions().dtype(scalar_t).device(input.device()));
+  TORCH_CHECK(THREADS_PER_BLOCK / images_per_thread_block >= T ||
+              images_per_thread_block == 1,
+              "Code error");
 
 
-  dim3 gridDim(C, num_blocks_patch, num_blocks_batch);
-  // blockDim is scalar, just threads_per_block.
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_kernel_backward", ([&] {
-        learned_nonlin_kernel_backward<scalar_t><<<gridDim, threads_per_block,
-                                                    sizeof(scalar_t) * buffer_numel,
-                                                    at::cuda::getCurrentCUDAStream()>>>(
-              input.packed_accessor32<scalar_t, 4>(),
-              pos_add.packed_accessor32<scalar_t, 3>(),
-              pos_mul.packed_accessor32<scalar_t, 3>(),
-              grad_output.packed_accessor32<scalar_t, 4>(),
-              grad_input.packed_accessor32<scalar_t, 4>(),
-              grad_pos_add.packed_accessor32<scalar_t, 4>(),
-              grad_pos_mul.packed_accessor32<scalar_t, 4>(),
-              patchH,
-              patchW,
-              threads_per_pixel,
-              threads_per_kernel_pos);
+  torch::Tensor params_grad = torch::empty({grid_dim_y, C, N + 1}, opts);
+
+  dim3 gridDim(C, grid_dim_y, 1);
+
+  // blockDim is scalar, just THREADS_PER_BLOCK.
+  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_backward_kernel", ([&] {
+        learned_nonlin_backward_kernel<scalar_t><<<gridDim, THREADS_PER_BLOCK, sizeof(scalar_t) * shared_mem_numel, at::cuda::getCurrentCUDAStream()>>>(
+            input.packed_accessor32<scalar_t, 3>(),
+            params.packed_accessor32<scalar_t, 2>(),
+            output_grad.packed_accessor32<scalar_t, 3>(),
+            input_grad.packed_accessor32<scalar_t, 3>(),
+            params_grad.packed_accessor32<scalar_t, 3>(),
+            images_per_thread_block);
       }));
-  grad_pos_add = at::sum(grad_pos_add, {0});
-  grad_pos_mul = at::sum(grad_pos_mul, {0});
 
-  return std::vector<torch::Tensor>({grad_input, grad_pos_add, grad_pos_mul}); */
+  params_grad = at::sum(params_grad, {0});
+  return std::vector<torch::Tensor>({input_grad, params_grad});
 }
