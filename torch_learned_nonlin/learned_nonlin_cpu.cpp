@@ -37,16 +37,15 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
               sum_positive = 0.0,
               scale = exp(params_a[c][0]);
           for (int i = 0; i < K; i++) {
-            y_vals_a[c][K + i] = sum_positive;
-            y_vals_a[c][K - i] = sum_negative;
-            sum_positive += params_a[c][1 + K + i] * scale;
-            sum_negative -= params_a[c][K - i] * scale;
+            scalar_t pos_scaled_param = params_a[c][1 + K + i] * scale,
+                neg_scaled_param = params_a[c][K - i] * scale;
+            y_vals_a[c][K + i] = sum_positive - pos_scaled_param * i;
+            sum_positive += pos_scaled_param;
+            sum_negative -= neg_scaled_param;
+            y_vals_a[c][K - i - 1] = sum_negative + neg_scaled_param * (i + 1);
           }
-          // Let the reference point for y_vals_a[c][0] be -K, although the
-          // interval actually starts at -(K-1).  This reference point is
-          // arbitrary but using it makes our lives easier when processing the
-          // data.
-          y_vals_a[c][0] = sum_negative;
+          //scalar_t neg_scaled_param = params_a[c][1] * scale;
+          //y_vals_a[c][0] = sum_negative + neg_scaled_param * K;
         }
 
         auto input_a = input.accessor<scalar_t, 3>(),
@@ -62,14 +61,14 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
               // so in a sense -K and +K are not special, but we include those
               // extra values as an easy way to handle the semi-infinite regions
               // that are < -(K-1) and > (K-1)
-              scalar_t x = input_a[b][c][t] * inv_scale + K,
-                  x_trunc = x;
-              if (x_trunc < 0) x_trunc = 0;
-              else if (x_trunc >= N) x_trunc = N - 1;
+              scalar_t input = input_a[b][c][t],
+                  x = input * inv_scale + K;
+              if (x < 0) x = 0;
+              else if (x >= N) x = N - 1;
               // C++ rounds toward zero.
-              int n = (int) x_trunc;
+              int n = (int) x;
               // OK, at this point, 0 <= min < 2*K.
-              scalar_t y = (x - n) * scale * params_a[c][n + 1] + y_vals_a[c][n];
+              scalar_t y = input * params_a[c][n + 1] + y_vals_a[c][n];
               /* printf("x = %f, y = %f, n = %d; y = (%f - %d) * %f+ %f\n", x, y, n,
                    x, n, params_a[c][n + 1], y_vals_a[c][n - 1]); */
               output_a[b][c][t] = y;
