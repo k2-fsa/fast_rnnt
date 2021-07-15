@@ -108,54 +108,53 @@ void learned_nonlin_kernel(
                                               // spaces between here and
                                               // `params_buf` for storing scale
                                               // and inv_scale and l == params[c][0].
-      *params_buf = (scalar_t*) y_vals + 3 + N;  // [N].  Caution: contains params[c][1] through params[c][N].
+      *params_buf = (scalar_t*) y_vals + 3 + N;  // [N].  Contains params[c][1] * scale through params[c][N] * scale,
                                                  //  params_buf[-1] contains params[c][0] == log of scale;
                                                  // params_buf[-2] and params_buf[-3] contain scale and inv_scale.
   // Load parameters
   if (threadIdx.x <= N)
     params_buf[threadIdx.x - 1] = params[c][threadIdx.x];
-
   __syncthreads();
-  // The easiest way to understand this code is to compare it with the CPU code
-  // in learned_nonlin_cpu.cpp.
-  // TODO: replace this with easier-to-understand code.
-  if ((((int)threadIdx.x & ~(int)64)) == 0) {
-    // threadIdx.x == 0 or 64 (we choose 64 because it's >= the max known warp
-    // size).  These are in separate warps so we can allow them to do separate
-    // jobs.  This code takes linear time in K which is not at all ideal and
-    // could be improved if K is largish, but it shouldn't dominate the total
-    // time taken if we are processing a lot of data; and anyway, we doubt that
-    // K will be need to be more than 4 or 8 or so, so the potential savings are
-    // quite small.
+
+  if (threadIdx.x == 0) {
     scalar_t scale = exp(params_buf[-1]),
         inv_scale = 1.0 / scale;
-    params_buf[-2] = scale;  // both threads write these but it's OK, it's the
-                             // same value.
+    params_buf[-2] = scale;
     params_buf[-3] = inv_scale;
-    int sign,
-        Koffset;  // Koffset == K for threads handling sum_positive and K - 1
-                  // for threads handling sum_negative, see
-                  // learned_nonlin_cpu.cpp for reference code.  This would be K
-                  // + 1 and K respectively, except our params_buf has its index
-                  // shifted by one versus params.
-    if (threadIdx.x == 0) {  // sum_positive
-      sign = 1;
-      Koffset = K;
-    } else {  // threadIdx.x == 64.  sum_negative.
-      scale *= -1;  // this is a local variable..
-      sign = -1;
-      Koffset = K - 1;
-    }
-    scalar_t sum = 0.0;
-    for (int i = 0; i < K; i++) {
-      int isign = i * sign;
-      y_vals[K + isign] = sum * scale;
-      sum += params_buf[Koffset + isign];
-    }
-    if (threadIdx.x != 0)  // sum_negative
-      y_vals[0] = sum * scale;
   }
   __syncthreads();
+
+  if (threadIdx.x < N) {
+    scalar_t scale = params_buf[-2];
+    params_buf[threadIdx.x] = params_buf[threadIdx.x] * scale;
+  }
+
+  __syncthreads();
+
+  // The easiest way to understand this code is to compare it with the CPU code
+  // in learned_nonlin_cpu.cpp.
+
+  if (threadIdx.x == 0) {
+    scalar_t sum_positive = 0.0;
+    for (int i = 0; i < K; i++) {
+      y_vals[K + i] = sum_positive;
+      // versus the CPU code, the params_buf is indexed off by 1; and it already
+      // contains the factor "scale".
+      sum_positive += params_buf[K + i];
+    }
+
+  } else if (threadIdx.x == 64) {
+    scalar_t sum_negative = 0.0;
+    for (int i = 0; i < K; i++) {
+      y_vals[K - i] = sum_negative;
+      // versus the CPU code, the params_buf is indexed off by 1; and it already
+      // contains the factor "scale".
+      sum_negative -= params_buf[K - 1 - i];
+    }
+    y_vals[0] = sum_negative;
+  }
+  __syncthreads();
+
   scalar_t inv_scale = params_buf[-3];
 
   int T_inc = THREADS_PER_BLOCK / images_per_thread_block,
@@ -176,7 +175,8 @@ void learned_nonlin_kernel(
       else if (x_trunc >= N) x_trunc = N - 1;
       // C++ rounds toward zero.
       int n = (int) x_trunc;
-      // OK, at this point, 0 <= min < N.
+      // OK, at this point, 0 <= min < N.  Versus the CPU code, we removed the
+      // factor of 'scale' because params_buf already has that factor.
       output[b][c][t] = (x - n) * params_buf[n] + y_vals[n];
     }
   }

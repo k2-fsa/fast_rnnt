@@ -54,7 +54,8 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
 
         for (int b = 0; b < B; b++) {
           for (int c = 0; c < C; c++) {
-            scalar_t inv_scale = exp(-params_a[c][0]);
+            scalar_t scale = exp(params_a[c][0]),
+                inv_scale = 1.0 / scale;
             for (int t = 0; t < T; t++) {
               // `x` is the scaled input x plus an offset so that -K maps to 0.
               //  Note: the discontinuities in our function are at -(K-1) ... +(K+1),
@@ -68,7 +69,7 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
               // C++ rounds toward zero.
               int n = (int) x_trunc;
               // OK, at this point, 0 <= min < 2*K.
-              scalar_t y = (x - n) * params_a[c][n + 1] + y_vals_a[c][n];
+              scalar_t y = (x - n) * scale * params_a[c][n + 1] + y_vals_a[c][n];
               /* printf("x = %f, y = %f, n = %d; y = (%f - %d) * %f+ %f\n", x, y, n,
                    x, n, params_a[c][n + 1], y_vals_a[c][n - 1]); */
               output_a[b][c][t] = y;
@@ -139,8 +140,10 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
 
         for (int b = 0; b < B; b++) {
           for (int c = 0; c < C; c++) {
-            scalar_t inv_scale = exp(-params_a[c][0]),
-                inv_scale_grad = 0.0;
+            scalar_t scale = exp(params_a[c][0]),
+                inv_scale = 1.0 / scale,
+                inv_scale_grad = 0.0,
+                scale_grad = 0.0;
             for (int t = 0; t < T; t++) {
               // `x` is the scaled input x plus an offset so that -K maps to 0.
               //  Note: the discontinuities in our function are at -(K-1) ... +(K+1),
@@ -157,16 +160,22 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
               int n = (int) x_trunc;
               // OK, at this point, 0 <= n < 2*K.
               // backprop for:
-              // scalar_t y = (x - (scalar_t)n) * params_a[c][n + 1] + y_vals_a[c][n];
-              scalar_t x_grad = y_grad * params_a[c][n + 1];
-              params_grad_a[c][n + 1] += y_grad * (x - (scalar_t)n);
+              // scalar_t x_residual_scaled = (x - (scalar_t)n) * scale
+              // scalar_t y = x_residual_scaled * params_a[c][n + 1] + y_vals_a[c][n];
+              scalar_t x_residual_scaled = (x - n) * scale,
+                  x_residual_scaled_grad = y_grad * params_a[c][n + 1],
+                  x_grad = x_residual_scaled_grad * scale;
+              scale_grad += x_residual_scaled_grad * (x - (scalar_t)n);
+              params_grad_a[c][n + 1] += y_grad * x_residual_scaled;
               y_vals_grad_a[c][n] += y_grad;
               // backprop for:  x = input * inv_scale + K,
               inv_scale_grad += x_grad * input;
               input_grad_a[b][c][t] = x_grad * inv_scale;
             }
-            // Do the backprop for: inv_scale = exp(-params_a[c][0])
-            params_grad_a[c][0] -= inv_scale * inv_scale_grad;
+            // Do the backprop for:
+            //    scale = exp(params_a[c][0]);
+            //    inv_scale = exp(-params_a[c][0]);
+            params_grad_a[c][0] += (scale * scale_grad - inv_scale * inv_scale_grad);
           }
         }
         // Now do the backprop for the loop above where we set y_vals_a.
