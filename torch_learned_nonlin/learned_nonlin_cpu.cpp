@@ -131,10 +131,7 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
 
         for (int b = 0; b < B; b++) {
           for (int c = 0; c < C; c++) {
-            scalar_t scale = exp(params_a[c][0]),
-                inv_scale = 1.0 / scale,
-                inv_scale_grad = 0.0,
-                scale_grad = 0.0;
+            scalar_t inv_scale = exp(-params_a[c][0]);
             for (int t = 0; t < T; t++) {
               scalar_t input = input_a[b][c][t],
                   x = input * inv_scale + K,
