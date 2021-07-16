@@ -684,7 +684,7 @@ std::vector<torch::Tensor> learned_nonlin_backward_cuda(torch::Tensor input,
 
 
 
-  if (true)
+  if (false)
     std::cout << "C,B,T,N = " << C << "," << B << "," << T << "," << N
               << ", images_per_thread_block = " << images_per_thread_block
               << ", grid_dim_y = " << grid_dim_y
