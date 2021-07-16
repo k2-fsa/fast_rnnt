@@ -13,7 +13,7 @@ def test_learned_nonlin_basic():
 
         K = 4
         N = K * 2
-        params = torch.arange(N + 1, dtype=dtype).unsqueeze(0) + torch.arange(C, dtype=dtype).unsqueeze(1)
+        params = torch.arange(N + 1, dtype=dtype).unsqueeze(0) + torch.arange(C, dtype=dtype).unsqueeze(1) - 3
         x.requires_grad = True
         params.requires_grad = True
         print("x = ", x)
