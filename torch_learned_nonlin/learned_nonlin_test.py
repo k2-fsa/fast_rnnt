@@ -90,7 +90,7 @@ def test_learned_nonlin_deriv():
             y2 = learned_nonlin(x + delta_x, params, dim = 1)
             observed_change = (y_deriv * (y2 - y)).sum()
             print(f"for input: pred_change = {pred_change}, observed_change={observed_change}")
-            if not torch.allclose(pred_change, observed_change, rtol=2.0e-02, atol=1.0e-05):
+            if not torch.allclose(pred_change, observed_change, rtol=2.0e-02, atol=3.0e-05):
                 print(f"For changed input, output differs too much: params={params}, input={x}, mod_input={x+delta_x}, y={y}, y2={y2}, diff={y2-y}")
                 assert 0
 
