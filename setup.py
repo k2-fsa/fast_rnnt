@@ -68,7 +68,7 @@ setup(
     install_requires=requirements,
     python_requires='>=3.6',
     packages=find_packages(),
-    author='Anton Obukhov',
+    author='Dan Povey',
     license='BSD',
     url='https://www.github.com/toshas/torch-discounted-cumsum',
     ext_modules=configure_extensions(),

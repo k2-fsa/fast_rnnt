@@ -11,6 +11,7 @@ def test_learned_nonlin_basic():
         x = -2.0 + 0.4 * torch.arange(10, dtype=dtype)
         x = x.reshape(1, 1, 10).repeat(B, C, 1)
 
+
         K = 4
         N = K * 2
         params = torch.arange(N + 1, dtype=dtype).unsqueeze(0) + torch.arange(C, dtype=dtype).unsqueeze(1) - 3
@@ -19,7 +20,19 @@ def test_learned_nonlin_basic():
         print("x = ", x)
         print("params = ", params)
         print("x.shape = ", x.shape)
+
         y = learned_nonlin(x, params, dim = 1)
+
+
+        if True:
+            # Check
+            x2 = x.reshape(B, C, 5, 2)
+            assert torch.allclose(learned_nonlin(x, params, dim = 1), learned_nonlin(x2, params, dim = 1).reshape(x.shape))
+
+            x2 = x.reshape(B, 1, C, 10)
+            assert torch.allclose(learned_nonlin(x, params, dim = 1), learned_nonlin(x2, params, dim = 2).reshape(x.shape))
+
+
 
         print("y = ", y)
         y.sum().backward()
