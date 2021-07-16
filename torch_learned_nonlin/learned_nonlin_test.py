@@ -22,17 +22,31 @@ def test_learned_nonlin_basic():
         y = learned_nonlin(x, params, dim = 1)
 
         print("y = ", y)
+        y.sum().backward()
 
         if torch.cuda.is_available():
             # test that the CUDA forward is the same as the CPU forward.
             device = torch.device('cuda:0')
-            y2 = learned_nonlin(x.to(device), params.to(device), dim = 1).to(torch.device('cpu'))
+            x2 = x.to(device).detach()
+            x2.requires_grad = True
+            params2 = params.to(device).detach()
+            params2.requires_grad = True
+            y2 = learned_nonlin(x2, params2, dim = 1).to(torch.device('cpu'))
             print("Checking CUDA is same")
             if not torch.allclose(y, y2, atol=1.0e-06):
                 print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}")
                 assert(0);
 
-        y.sum().backward()
+            y2.sum().backward()
+
+            if not torch.allclose(x.grad, x2.grad.to('cpu'), atol=1.0e-06):
+                print(f"Error: CPU x-grad versus CUDA grad not the same: {x.grad} vs. {x2.grad}, diff = {x2.grad.to('cpu')-x.grad}")
+                assert(0);
+            if not torch.allclose(params.grad, params2.grad.to('cpu'), atol=1.0e-06):
+                print(f"Error: CPU params-grad versus CUDA grad not the same: {params.grad} vs. {params2.grad}, diff = {params2.grad.to('cpu')-params.grad}")
+                assert(0);
+
+
 
         print("x.grad = ", x.grad)
         print("params.grad = ", params.grad)
