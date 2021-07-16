@@ -71,18 +71,37 @@ def test_learned_nonlin_deriv():
             print(f"B,C,T,K = {B},{C},{T},{K}")
             y = learned_nonlin(x, params, dim = 1)
 
+            y_deriv = torch.randn_like(y)
+            y.backward(gradient=y_deriv)
 
             if torch.cuda.is_available():
                 # test that the CUDA forward is the same as the CPU forward.
                 device = torch.device('cuda:0')
-                y2 = learned_nonlin(x.to(device), params.to(device), dim = 1).to(torch.device('cpu'))
+                x2, params2 = x.to(device).detach(), params.to(device).detach()
+                x2.requires_grad = True
+                params2.requires_grad = True
+                y2 = learned_nonlin(x2, params2, dim = 1)
+
+                if N >= 4 and N <= 16:  # Currently backprop requires these conditions
+                    y2.backward(gradient=y_deriv.to(device))
+                    x2grad, params2grad = x2.grad.to('cpu'), params2.grad.to('cpu')
+
+                y2 = y2.to('cpu')
+
                 print("Checking CUDA is same")
                 if not torch.allclose(y, y2, atol=1.0e-05):
-                    print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}, max-diff = {(y2-y).abs().max()}")
+                    print(f"Error: CPU output versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}, max-diff = {(y2-y).abs().max()}")
                     assert(0)
 
-            y_deriv = torch.randn_like(y)
-            y.backward(gradient=y_deriv)
+                if N >= 4 and N <= 16:  # Currently backprop requires these conditions
+                    if not torch.allclose(x.grad, x2grad, atol=1.0e-05):
+                        print(f"Error: CPU x.grad versus CUDA not the same: {x.grad} vs. {x2grad}, diff = {x2grad-x.grad}, max-diff = {(x2grad-x.grad).abs().max()}")
+                        assert(0)
+                    if not torch.allclose(params.grad, params2grad, atol=1.0e-05):
+                        print(f"Error: CPU params.grad versus CUDA not the same: {params.grad} vs. {params2grad}, "
+                              f"diff = {params2grad-params.grad}, max-diff = {(params2grad-params.grad).abs().max()}")
+                        assert(0)
+
 
             delta = 1.0e-04
             delta_x = torch.randn_like(x) * delta
@@ -90,7 +109,7 @@ def test_learned_nonlin_deriv():
             y2 = learned_nonlin(x + delta_x, params, dim = 1)
             observed_change = (y_deriv * (y2 - y)).sum()
             print(f"for input: pred_change = {pred_change}, observed_change={observed_change}")
-            if not torch.allclose(pred_change, observed_change, rtol=2.0e-02, atol=3.0e-05):
+            if not torch.allclose(pred_change, observed_change, rtol=5.0e-02, atol=3.0e-05):
                 print(f"For changed input, output differs too much: params={params}, input={x}, mod_input={x+delta_x}, y={y}, y2={y2}, diff={y2-y}")
                 assert 0
 
