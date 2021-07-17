@@ -1,3 +1,6 @@
+# Caution: this will fail occasionally due to cutoffs not being quite large enough.
+# As long as it passes most of the time, it's OK.
+
 import random
 import torch
 from torch_learned_nonlin import learned_nonlin
