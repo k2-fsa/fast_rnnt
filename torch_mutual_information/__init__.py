@@ -1,1 +1,1 @@
-from .learned_nonlin import learned_nonlin
+from .mutual_information import mutual_information

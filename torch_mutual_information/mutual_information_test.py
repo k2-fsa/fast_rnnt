@@ -3,10 +3,10 @@
 
 import random
 import torch
-from torch_learned_nonlin import learned_nonlin
+from torch_mutual_information import mutual_information
 
 
-def test_learned_nonlin_basic():
+def test_mutual_information_basic():
     for dtype in [torch.float32, torch.float64]:
         B = 2
         C = 4
@@ -24,16 +24,16 @@ def test_learned_nonlin_basic():
         print("params = ", params)
         print("x.shape = ", x.shape)
 
-        y = learned_nonlin(x, params, dim = 1)
+        y = mutual_information(x, params, dim = 1)
 
 
         if True:
             # Check
             x2 = x.reshape(B, C, 5, 2)
-            assert torch.allclose(learned_nonlin(x, params, dim = 1), learned_nonlin(x2, params, dim = 1).reshape(x.shape))
+            assert torch.allclose(mutual_information(x, params, dim = 1), mutual_information(x2, params, dim = 1).reshape(x.shape))
 
             x2 = x.reshape(B, 1, C, 10)
-            assert torch.allclose(learned_nonlin(x, params, dim = 1), learned_nonlin(x2, params, dim = 2).reshape(x.shape))
+            assert torch.allclose(mutual_information(x, params, dim = 1), mutual_information(x2, params, dim = 2).reshape(x.shape))
 
 
 
@@ -47,7 +47,7 @@ def test_learned_nonlin_basic():
             x2.requires_grad = True
             params2 = params.to(device).detach()
             params2.requires_grad = True
-            y2 = learned_nonlin(x2, params2, dim = 1).to(torch.device('cpu'))
+            y2 = mutual_information(x2, params2, dim = 1).to(torch.device('cpu'))
             print("Checking CUDA is same")
             if not torch.allclose(y, y2, atol=1.0e-06):
                 print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}")
@@ -70,7 +70,7 @@ def test_learned_nonlin_basic():
         # Just eyeballing the above tgo make sure it looks reasonable.
 
 
-def test_learned_nonlin_deriv():
+def test_mutual_information_deriv():
     """ Tests derivatives in randomized way """
     for _ in range(10):
         for dtype in [torch.float32, torch.float64]:
@@ -85,7 +85,7 @@ def test_learned_nonlin_deriv():
             x.requires_grad = True
             params.requires_grad = True
             print(f"B,C,T,K = {B},{C},{T},{K}")
-            y = learned_nonlin(x, params, dim = 1)
+            y = mutual_information(x, params, dim = 1)
 
             y_deriv = torch.randn_like(y)
             y.backward(gradient=y_deriv)
@@ -96,7 +96,7 @@ def test_learned_nonlin_deriv():
                 x2, params2 = x.to(device).detach(), params.to(device).detach()
                 x2.requires_grad = True
                 params2.requires_grad = True
-                y2 = learned_nonlin(x2, params2, dim = 1)
+                y2 = mutual_information(x2, params2, dim = 1)
 
                 if N >= 4 and N <= 16:  # Currently backprop requires these conditions
                     y2.backward(gradient=y_deriv.to(device))
@@ -122,7 +122,7 @@ def test_learned_nonlin_deriv():
             delta = 1.0e-04
             delta_x = torch.randn_like(x) * delta
             pred_change = (x.grad * delta_x).sum()
-            y2 = learned_nonlin(x + delta_x, params, dim = 1)
+            y2 = mutual_information(x + delta_x, params, dim = 1)
             observed_change = (y_deriv * (y2 - y)).sum()
             print(f"for input: pred_change = {pred_change}, observed_change={observed_change}")
             if not torch.allclose(pred_change, observed_change, rtol=5.0e-02, atol=3.0e-05):
@@ -131,13 +131,13 @@ def test_learned_nonlin_deriv():
 
             delta_params = torch.randn_like(params) * delta
             pred_change = (params.grad * delta_params).sum()
-            observed_change = (y_deriv * (learned_nonlin(x, params + delta_params, dim = 1) - y)).sum()
+            observed_change = (y_deriv * (mutual_information(x, params + delta_params, dim = 1) - y)).sum()
             print(f"for params: pred_change = {pred_change}, observed_change={observed_change}")
             assert torch.allclose(pred_change, observed_change, rtol=1.0e-02, atol=1.0e-05)
 
 
 
-def test_learned_nonlin_zeros():
+def test_mutual_information_zeros():
     N = 1
     C = 2
     H = 3
@@ -158,7 +158,7 @@ def test_learned_nonlin_zeros():
             pos_mul.requires_grad = True
 
             output_ref = torch.zeros(N, C, H, W, device=device, dtype=dtype)
-            output = learned_nonlin(input, pos_add, pos_mul)
+            output = mutual_information(input, pos_add, pos_mul)
             assert torch.allclose(output, output_ref)
 
             output.sum().backward()
@@ -167,7 +167,7 @@ def test_learned_nonlin_zeros():
             print("pos_mul_grad=", pos_mul.grad)
 
 
-def test_learned_nonlin_compare():
+def test_mutual_information_compare():
     N = 1
     C = 2
     H = 3
@@ -192,8 +192,8 @@ def test_learned_nonlin_compare():
         for x in [ pos_add, pos_mul, pos_add_cuda, pos_mul_cuda, input, input_cuda ]:
             x.requires_grad = True
 
-        output = learned_nonlin(input, pos_add, pos_mul)
-        output_cuda = learned_nonlin(input_cuda, pos_add_cuda, pos_mul_cuda)
+        output = mutual_information(input, pos_add, pos_mul)
+        output_cuda = mutual_information(input_cuda, pos_add_cuda, pos_mul_cuda)
         print("output = ", output)
         print("output_cuda = ", output_cuda)
 
@@ -223,7 +223,7 @@ def test_learned_nonlin_compare():
 
 
 
-def test_learned_nonlin_rand_compare():
+def test_mutual_information_rand_compare():
     for _ in range(30):
         N = random.randint(1, 256)
         C = random.randint(1, 64)
@@ -261,8 +261,8 @@ def test_learned_nonlin_rand_compare():
             pos_add_cuda = pos_add.to(device)
             pos_mul_cuda = pos_mul.to(device)
 
-            output = learned_nonlin(input, pos_add, pos_mul)
-            output_cuda = learned_nonlin(input_cuda, pos_add_cuda, pos_mul_cuda)
+            output = mutual_information(input, pos_add, pos_mul)
+            output_cuda = mutual_information(input_cuda, pos_add_cuda, pos_mul_cuda)
 
             diff = (output - output_cuda.to(torch.device('cpu'))).abs().sum()
             sum_abs = output.abs().sum()
@@ -275,7 +275,7 @@ def test_learned_nonlin_rand_compare():
 
 
 
-def test_learned_nonlin_rand_grad():
+def test_mutual_information_rand_grad():
     for _ in range(30):
         N = random.randint(1, 256)
         C = random.randint(1, 64)
@@ -313,7 +313,7 @@ def test_learned_nonlin_rand_grad():
                 pos_add.requires_grad = True
                 pos_mul.requires_grad = True
 
-                output = learned_nonlin(input, pos_add, pos_mul)
+                output = mutual_information(input, pos_add, pos_mul)
                 output_grad = torch.randn(N, C, H, W, dtype=dtype, device=device)
 
                 output.backward(gradient=output_grad)
@@ -321,27 +321,27 @@ def test_learned_nonlin_rand_grad():
                 delta = 1.0e-05
                 pos_delta = delta * torch.randn(C, kH, kW, dtype=dtype, device=device)
                 pred_change = (pos_delta * pos_add.grad).sum().to('cpu').item()
-                change = (output_grad * (learned_nonlin(input, pos_add + pos_delta, pos_mul) - output )).sum().to('cpu').item()
+                change = (output_grad * (mutual_information(input, pos_add + pos_delta, pos_mul) - output )).sum().to('cpu').item()
                 print(f"For pos_add: pred_change={pred_change}, change={change}")
                 #assert abs(pred_change - change)  < 1.0e-04
 
                 pred_change = (pos_delta * pos_mul.grad).sum().to('cpu').item()
-                change = (output_grad * (learned_nonlin(input, pos_add, pos_mul + pos_delta) - output )).sum().to('cpu').item()
+                change = (output_grad * (mutual_information(input, pos_add, pos_mul + pos_delta) - output )).sum().to('cpu').item()
                 print(f"For pos_mul: pred_change={pred_change}, change={change}")
                 #assert abs(pred_change - change) / abs(change) < 1.0e-04
 
                 input_delta = delta * torch.randn(N, 2*C, H, W, dtype=dtype, device=device)
                 pred_change = (input_delta * input.grad).sum().to('cpu').item()
-                change = (output_grad * (learned_nonlin(input + input_delta, pos_add, pos_mul) - output )).sum().to('cpu').item()
+                change = (output_grad * (mutual_information(input + input_delta, pos_add, pos_mul) - output )).sum().to('cpu').item()
                 print(f"For input: pred_change={pred_change}, change={change}")
                 #assert abs(pred_change - change) / abs(change) < 1.0e-04
 
 
 if __name__ == "__main__":
-    test_learned_nonlin_basic()
-    test_learned_nonlin_deriv()
+    test_mutual_information_basic()
+    test_mutual_information_deriv()
     if False:
-        test_learned_nonlin_rand_grad()
-        test_learned_nonlin_zeros()
-        test_learned_nonlin_compare()
-        test_learned_nonlin_rand_compare()
+        test_mutual_information_rand_grad()
+        test_mutual_information_zeros()
+        test_mutual_information_compare()
+        test_mutual_information_rand_compare()

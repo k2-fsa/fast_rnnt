@@ -2,9 +2,9 @@
 
 
 
-// forward of learned_nonlin.  See """... """ comment of `learned_nonlin` in
-// learned_nonlin.py for documentation of the behavior of this function.
-torch::Tensor learned_nonlin_cpu(torch::Tensor input,
+// forward of mutual_information.  See """... """ comment of `mutual_information` in
+// mutual_information.py for documentation of the behavior of this function.
+torch::Tensor mutual_information_cpu(torch::Tensor input,
                                  torch::Tensor params) {
   TORCH_CHECK(input.dim() == 3, "input must be 3-dimensional");
   TORCH_CHECK(params.dim() == 2, "params must be 2-dimensional.");
@@ -29,7 +29,7 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
   torch::Tensor y_vals = torch::empty({C, N}, opts),
     output = torch::empty({B, C, T}, opts);
 
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_cpu_loop", ([&] {
+  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "mutual_information_cpu_loop", ([&] {
         auto params_a = params.accessor<scalar_t, 2>(),
             y_vals_a = y_vals.accessor<scalar_t, 2>();
         for (int c = 0; c < C; c++) {
@@ -74,9 +74,9 @@ torch::Tensor learned_nonlin_cpu(torch::Tensor input,
 }
 
 
-// backward of learned_nonlin.  Returns (input_grad, params_grad)
+// backward of mutual_information.  Returns (input_grad, params_grad)
 
-std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
+std::vector<torch::Tensor> mutual_information_backward_cpu(torch::Tensor input,
                                                        torch::Tensor params,
                                                        torch::Tensor output_grad) {
   TORCH_CHECK(input.dim() == 3, "input must be 3-dimensional");
@@ -107,7 +107,7 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
       params_grad = torch::zeros({C, N + 1}, opts),
       input_grad = torch::zeros({B, C, T}, opts);
 
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_backward_cpu_loop", ([&] {
+  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "mutual_information_backward_cpu_loop", ([&] {
         auto params_a = params.accessor<scalar_t, 2>(),
             params_grad_a = params_grad.accessor<scalar_t, 2>(),
             y_vals_a = y_vals.accessor<scalar_t, 2>(),
@@ -186,6 +186,6 @@ std::vector<torch::Tensor> learned_nonlin_backward_cpu(torch::Tensor input,
 
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("learned_nonlin_cpu", &learned_nonlin_cpu, "Integrated convolution forward function (CPU)");
-  m.def("learned_nonlin_backward_cpu", &learned_nonlin_backward_cpu, "Integrated convolution backward function (CPU)");
+  m.def("mutual_information_cpu", &mutual_information_cpu, "Integrated convolution forward function (CPU)");
+  m.def("mutual_information_backward_cpu", &mutual_information_backward_cpu, "Integrated convolution backward function (CPU)");
 }

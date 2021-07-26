@@ -12,59 +12,59 @@ def _resolve(name):
 
 
 try:
-    import torch_learned_nonlin_cpu
+    import torch_mutual_information_cpu
 except ImportError:
     if VERBOSE:
-        print('Falling back to JIT compiling torch_learned_nonlin_cpu')
-    torch_learned_nonlin_cpu = load(
-        name='torch_learned_nonlin_cpu',
+        print('Falling back to JIT compiling torch_mutual_information_cpu')
+    torch_mutual_information_cpu = load(
+        name='torch_mutual_information_cpu',
         sources=[
-            _resolve('learned_nonlin_cpu.cpp'),
+            _resolve('mutual_information_cpu.cpp'),
         ],
         verbose=VERBOSE,
     )
 
 
 try:
-        import torch_learned_nonlin_cuda
+        import torch_mutual_information_cuda
 except ImportError:
     if VERBOSE:
-        print('Falling back to JIT compiling torch_learned_nonlin_cuda')
-    torch_learned_nonlin_cuda = None
+        print('Falling back to JIT compiling torch_mutual_information_cuda')
+    torch_mutual_information_cuda = None
     if torch.cuda.is_available():
-        torch_learned_nonlin_cuda = load(
-            name='torch_learned_nonlin_cuda',
+        torch_mutual_information_cuda = load(
+            name='torch_mutual_information_cuda',
             sources=[
-                _resolve('learned_nonlin_cuda.cpp'),
-                _resolve('learned_nonlin_cuda_kernel.cu'),
+                _resolve('mutual_information_cuda.cpp'),
+                _resolve('mutual_information_cuda_kernel.cu'),
             ],
             verbose=VERBOSE,
         )
 
 
 
-def _learned_nonlin_forward_dispatcher(input: torch.Tensor,
+def _mutual_information_forward_dispatcher(input: torch.Tensor,
                                        params: torch.Tensor) -> torch.Tensor:
     if input.is_cuda:
-        if torch_learned_nonlin_cuda is None:
+        if torch_mutual_information_cuda is None:
             raise EnvironmentError(f'Failed to load native CUDA module')
-        return torch_learned_nonlin_cuda.learned_nonlin_cuda(
+        return torch_mutual_information_cuda.mutual_information_cuda(
             input, params.contiguous())
     else:
-        return torch_learned_nonlin_cpu.learned_nonlin_cpu(
+        return torch_mutual_information_cpu.mutual_information_cpu(
             input, params)
 
-def _learned_nonlin_backward_dispatcher(input: torch.Tensor,
+def _mutual_information_backward_dispatcher(input: torch.Tensor,
                                         params: torch.Tensor,
                                         grad_output) -> Tuple[torch.Tensor, torch.Tensor]:
     if input.is_cuda:
-        if torch_learned_nonlin_cuda is None:
+        if torch_mutual_information_cuda is None:
             raise EnvironmentError(f'Failed to load native CUDA module')
-        return tuple(torch_learned_nonlin_cuda.learned_nonlin_backward_cuda(
+        return tuple(torch_mutual_information_cuda.mutual_information_backward_cuda(
             input, params,
             grad_output))
     else:
-        return tuple(torch_learned_nonlin_cpu.learned_nonlin_backward_cpu(
+        return tuple(torch_mutual_information_cpu.mutual_information_backward_cpu(
             input, params, grad_output))
 
 
@@ -115,7 +115,7 @@ class LearnedNonlinFunction(torch.autograd.Function):
 
         ctx.dim = dim
         ctx.save_for_backward(input, params)
-        output = _learned_nonlin_forward_dispatcher(_reshape_as_3dim(input, dim),
+        output = _mutual_information_forward_dispatcher(_reshape_as_3dim(input, dim),
                                                     params)
         return output
 
@@ -127,12 +127,12 @@ class LearnedNonlinFunction(torch.autograd.Function):
         # input, so that if this reshaping results in a copy it is not retained
         # (this saves memory at the expense of a little extra work in such
         # situations).
-        grad_input, grad_params = _learned_nonlin_backward_dispatcher(
+        grad_input, grad_params = _mutual_information_backward_dispatcher(
             _reshape_as_3dim(input, ctx.dim), params, grad_output)
         return grad_input.reshape(input.shape), grad_params, None
 
 
-def learned_nonlin(input, params, dim):
+def mutual_information(input, params, dim):
     """Learned nonlinearity.
     Args:
        input:   The input, to be transformed pointwise; may be of any shape.

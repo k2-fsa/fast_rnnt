@@ -43,7 +43,7 @@ __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
 
 
 /*
-  Forward of learned_nonlin.  Each thread group handles a single channel (channel
+  Forward of mutual_information.  Each thread group handles a single channel (channel
   c = blockIdx.x); the gridDim is (C, nb, 1) where 1 <= nb <= B (nb relates to the
   image within the batch).
 
@@ -81,7 +81,7 @@ __forceinline__ __device__ scalar_t tiled_warp_reduce_sum(int threads_per_tile,
    1 <=  gridDim.y <= B, where B is the number of blocks
        gridDim.z == 1
   When we invoke this kernel, we'll invoke it as:
-   learned_nonlin_kernel<<<gridDim, blockDim, bytesShared, stream>>>
+   mutual_information_kernel<<<gridDim, blockDim, bytesShared, stream>>>
    where bytesShared is the number of bytes needed in `extern_buf`:
      bytesShared = sizeof(shared_t) * (2N + 3)
     We also require N + 1 <= THREADS_PER_BLOCK.
@@ -90,7 +90,7 @@ extern __shared__ int extern_buf[];
 
 template <typename scalar_t>
 __global__
-void learned_nonlin_kernel(
+void mutual_information_kernel(
     torch::PackedTensorAccessor32<scalar_t, 3> input,  // B, C, T, i.e. batch, channels, time
     torch::PackedTensorAccessor32<scalar_t, 2> params,  // C, N + 1
     torch::PackedTensorAccessor32<scalar_t, 3> output,
@@ -212,7 +212,7 @@ __forceinline__ __device__ scalar_t strided_reduce_sum(int N,
 }
 
 /*
-  Backward of learned_nonlin.  Each thread group handles a single channel (channel
+  Backward of mutual_information.  Each thread group handles a single channel (channel
   c = blockIdx.x); the gridDim is (C, nb, 1) where 1 <= nb <= B (nb relates to the
   image within the batch).
 
@@ -253,7 +253,7 @@ __forceinline__ __device__ scalar_t strided_reduce_sum(int N,
    1 <=  gridDim.y <= B, where B is the number of blocks
        gridDim.z == 1
   When we invoke this kernel, we'll invoke it as:
-   learned_nonlin_backward_kernel<<<gridDim, blockDim, bytesShared, stream>>>
+   mutual_information_backward_kernel<<<gridDim, blockDim, bytesShared, stream>>>
    where bytesShared is the number of bytes needed in `extern_buf`:
      bytesShared = sizeof(shared_t) * (2N + 3)
 
@@ -272,7 +272,7 @@ __forceinline__ __device__ scalar_t strided_reduce_sum(int N,
  */
 template <typename scalar_t>
 __global__
-void learned_nonlin_backward_kernel(
+void mutual_information_backward_kernel(
     torch::PackedTensorAccessor32<scalar_t, 3> input,  // B, C, T, i.e. batch, channels, time
     torch::PackedTensorAccessor32<scalar_t, 2> params,  // C, N + 1
     torch::PackedTensorAccessor32<scalar_t, 3> output_grad, // B, C, T
@@ -548,7 +548,7 @@ void learned_nonlin_backward_kernel(
 
 
 
-torch::Tensor learned_nonlin_cuda(torch::Tensor input,
+torch::Tensor mutual_information_cuda(torch::Tensor input,
                                   torch::Tensor params) {
 
   TORCH_CHECK(input.dim() == 3, "input must be 3-dimensional");
@@ -611,8 +611,8 @@ torch::Tensor learned_nonlin_cuda(torch::Tensor input,
   dim3 gridDim(C, grid_dim_y, 1);
 
   // blockDim is scalar, just THREADS_PER_BLOCK.
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_kernel", ([&] {
-        learned_nonlin_kernel<scalar_t><<<gridDim, THREADS_PER_BLOCK, sizeof(scalar_t) * shared_mem_numel, at::cuda::getCurrentCUDAStream()>>>(
+  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "mutual_information_kernel", ([&] {
+        mutual_information_kernel<scalar_t><<<gridDim, THREADS_PER_BLOCK, sizeof(scalar_t) * shared_mem_numel, at::cuda::getCurrentCUDAStream()>>>(
               input.packed_accessor32<scalar_t, 3>(),
               params.packed_accessor32<scalar_t, 2>(),
               output.packed_accessor32<scalar_t, 3>(),
@@ -623,7 +623,7 @@ torch::Tensor learned_nonlin_cuda(torch::Tensor input,
 
 
 
-std::vector<torch::Tensor> learned_nonlin_backward_cuda(torch::Tensor input,
+std::vector<torch::Tensor> mutual_information_backward_cuda(torch::Tensor input,
                                                         torch::Tensor params,
                                                         torch::Tensor output_grad) {
   TORCH_CHECK(input.dim() == 3, "input must be 3-dimensional");
@@ -701,8 +701,8 @@ std::vector<torch::Tensor> learned_nonlin_backward_cuda(torch::Tensor input,
   dim3 gridDim(C, grid_dim_y, 1);
 
   // blockDim is scalar, just THREADS_PER_BLOCK.
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "learned_nonlin_backward_kernel", ([&] {
-        learned_nonlin_backward_kernel<scalar_t><<<gridDim, THREADS_PER_BLOCK, sizeof(scalar_t) * shared_mem_numel, at::cuda::getCurrentCUDAStream()>>>(
+  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "mutual_information_backward_kernel", ([&] {
+        mutual_information_backward_kernel<scalar_t><<<gridDim, THREADS_PER_BLOCK, sizeof(scalar_t) * shared_mem_numel, at::cuda::getCurrentCUDAStream()>>>(
             input.packed_accessor32<scalar_t, 3>(),
             params.packed_accessor32<scalar_t, 2>(),
             output_grad.packed_accessor32<scalar_t, 3>(),
