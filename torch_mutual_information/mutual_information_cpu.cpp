@@ -1,37 +1,86 @@
+#include <math.h>  // for log1p, log1pf
 #include <torch/extension.h>
+
+
+
+// returns log(exp(x) + exp(y)).
+inline double LogAdd(double x, double y) {
+  double diff;
+
+  if (x < y) {
+    diff = x - y;
+    x = y;
+  } else {
+    diff = y - x;
+  }
+  // diff is negative.  x is now the larger one.
+
+  if (diff >= kMinLogDiffDouble) {
+    double res;
+    res = x + log1p(exp(diff));
+    return res;
+  }
+
+  return x;  // return the larger one.
+}
+
+// returns log(exp(x) + exp(y)).
+inline float LogAdd(float x, float y) {
+  float diff;
+
+  if (x < y) {
+    diff = x - y;
+    x = y;
+  } else {
+    diff = y - x;
+  }
+  // diff is negative.  x is now the larger one.
+
+  if (diff >= kMinLogDiffFloat) {
+    float res;
+    res = x + log1pf(expf(diff));
+    return res;
+  }
+
+  return x;  // return the larger one.
+}
 
 
 
 // forward of mutual_information.  See """... """ comment of `mutual_information` in
 // mutual_information.py for documentation of the behavior of this function.
-torch::Tensor mutual_information_cpu(torch::Tensor input,
-                                 torch::Tensor params) {
-  TORCH_CHECK(input.dim() == 3, "input must be 3-dimensional");
-  TORCH_CHECK(params.dim() == 2, "params must be 2-dimensional.");
-  TORCH_CHECK(params.size(1) >= 3 &&
-              ((params.size(1) - 1) & (params.size(1) - 2)) == 0,
-              "params.size(1) has invalid value, must be a power of 2 plus 1.");
-  TORCH_CHECK(params.size(0) == input.size(1),
-              "params vs input channels mismatch");
+torch::Tensor mutual_information_cpu(torch::Tensor px,
+                                     torch::Tensor py,
+                                     std::optional<torch::Tensor> optional_boundary,
+                                     torch::Tensor q) {
 
-  TORCH_CHECK(input.device().is_cpu(), "Input must be a CPU tensor");
-  TORCH_CHECK(params.device().is_cpu(), "Params must be a CPU tensor");
+  TORCH_CHECK(px.dim() == 3, "px must be 3-dimensional");
+  TORCH_CHECK(py.dim() == 3, "params must be 3-dimensional.");
+  TORCH_CHECK(q.dim() == 3, "params must be 3-dimensional.");
 
-  const int B = input.size(0),
-      C = input.size(1),
-      T = input.size(2),
-      N = params.size(1) - 1,
-      K = N / 2;
+  auto scalar_t = px.scalar_type();
+  auto opts = torch::TensorOptions().dtype(scalar_t).device(px.device());
 
-  auto scalar_t = input.scalar_type();
-  auto opts = torch::TensorOptions().dtype(scalar_t).device(input.device());
 
-  torch::Tensor y_vals = torch::empty({C, N}, opts),
-    output = torch::empty({B, C, T}, opts);
+  const int B = px.size(0),
+      S = px.size(1),
+      T = px.size(2);
 
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "mutual_information_cpu_loop", ([&] {
-        auto params_a = params.accessor<scalar_t, 2>(),
-            y_vals_a = y_vals.accessor<scalar_t, 2>();
+  TORCH_CHECK(q.size(0) == B && q.size(1) == S + T && q.size(2) == T);
+
+
+  auto long_opts = torch::TensorOptiona().dtype(torch::kInt64);
+
+  bool has_boundary = (bool)optional_boundary;
+  if (!has_boundary)
+    optional_boundary = torch::empty({}, long_opts);
+
+
+
+
+  AT_DISPATCH_FLOATING_TYPES(px.scalar_type(), "mutual_information_cpu_loop", ([&] {
+        auto px_a = px.accessor<scalar_t, 3>(),
+            py_a = py.accessor<scalar_t, 3>();
         for (int c = 0; c < C; c++) {
           scalar_t sum_negative = 0.0,
               sum_positive = 0.0,

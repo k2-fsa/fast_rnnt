@@ -84,16 +84,19 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
         # has t_begin > 0 or s_begin > 0, i.e. we really access q as
         #   q[b, s-s_begin + t-t_begin, t-t_begin];
         # note, rows of `boundaries` are [s_begin, t_begin, s_end, t_end].
-        # We don't need q if we are not going to do backprop
 
-        q = (torch.empty(B, S + T, device=px.device, dtype=px.dtype)
-             if px.requires_grad or py.requires_grad
-             else None)
+        if px.requires_grad or py.requires_grad:
+            q = torch.empty(B, S, T, device=px.device, dtype=px.dtype)
+        else:
+            # We don't need to store q if we are not going to do backprop, but we
+            # do pass in a temporary with one real row, expanded to have "fake" rows,
+            # which happens to be convenient for the CPU implementation.
+            q = torch.empty({1, 1, T}, device=px.device, dtype=px.dtype).expand(B, S + T, T)
 
         ans = _mutual_information_forward_dispatcher(px, py, boundaries, q)
 
         if px.requires_grad or py.requires_grad:
-            ctx.save_for_backward(px, py, boundaries, w)
+            ctx.save_for_backward(px, py, boundaries, q)
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
@@ -109,7 +112,7 @@ def mutual_information_recursion(input, px, py, boundaries=None):
     monotonic alignment between pairs of sequences is desired.  The definitions of
     the arguments are definitions that would be used when computing this type of
     mutual information, but you can also view them as arbitrary quantities and just
-    look at the formula computed by this function.
+    make use of the formula computed by this function.
 
     Args:
           px:  A torch.Tensor of some floating point type, with shape [B][S][T],
@@ -131,6 +134,11 @@ def mutual_information_recursion(input, px, py, boundaries=None):
                    log(N exp f(x_s, y_{t-1}) / sum_t'  exp f(x_s, y_t'))
                where N is the number of terms that the sum over t' included, which
                might include some or all of the other sequences as well as this one.
+
+               Note: we don't require px and py to be contiguous, but the
+               code assumes for optimization purposes that the T axis has
+               stride 1.
+
           py:  A torch.Tensor of the same dtype as px, with shape [B][S][T],
                representing
                  py[b][s][t] =  log [ p(y_t | x_{0..s-1}, y_{0..t-1}) / p(y_t) ]
