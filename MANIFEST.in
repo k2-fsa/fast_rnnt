@@ -2,6 +2,6 @@ include requirements.txt
 include pyproject.toml
 include LICENSE*
 recursive-include torch_mutual_information *
-recursive-include doc/img *
+precursive-include doc/img *
 recursive-include tests *
 global-exclude *.pyc
