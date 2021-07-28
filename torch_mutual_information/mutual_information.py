@@ -73,6 +73,14 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
     def forward(ctx, px: torch.Tensor, py: torch.Tensor, boundaries: torch.Tensor) -> torch.Tensor:
         (B, S, T) = px.shape
 
+
+        # p is a tensor of shape (B, S + 1, T + 1) were p[s][t] is related to
+        # the mutual information of the pair of subsequences of x and y that are of
+        # length s and t respectively.  p[0][0] will be 0.0 and p[S][T] is
+        # the mutual information of the entire pair of sequences, i.e. of lengths
+        # S and T respectively.
+
+
         # q is a rearrangement of a tensor p which is of shape (B,S,T),
         # using p[b,s,t] == q[b,s+t,t].  The reason for working with this
         # representation is that each row of q depends only on the previous row,
@@ -85,15 +93,9 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
         #   q[b, s-s_begin + t-t_begin, t-t_begin];
         # note, rows of `boundaries` are [s_begin, t_begin, s_end, t_end].
 
-        if px.requires_grad or py.requires_grad:
-            q = torch.empty(B, S, T, device=px.device, dtype=px.dtype)
-        else:
-            # We don't need to store q if we are not going to do backprop, but we
-            # do pass in a temporary with one real row, expanded to have "fake" rows,
-            # which happens to be convenient for the CPU implementation.
-            q = torch.empty({1, 1, T}, device=px.device, dtype=px.dtype).expand(B, S + T, T)
+        p = torch.empty(B, S + 1, T + 1, device=px.device, dtype=px.dtype)
 
-        ans = _mutual_information_forward_dispatcher(px, py, boundaries, q)
+        ans = _mutual_information_forward_dispatcher(px, py, boundaries, p)
 
         if px.requires_grad or py.requires_grad:
             ctx.save_for_backward(px, py, boundaries, q)
@@ -115,7 +117,7 @@ def mutual_information_recursion(input, px, py, boundaries=None):
     make use of the formula computed by this function.
 
     Args:
-          px:  A torch.Tensor of some floating point type, with shape [B][S][T],
+          px:  A torch.Tensor of some floating point type, with shape [B][S][T+1],
                where B is the batch size, S is the length of the 'x' sequence
                (including representations of EOS symbols but not BOS symbols), and S is the
                length of the 'y' sequence (including representations of
@@ -139,13 +141,13 @@ def mutual_information_recursion(input, px, py, boundaries=None):
                code assumes for optimization purposes that the T axis has
                stride 1.
 
-          py:  A torch.Tensor of the same dtype as px, with shape [B][S][T],
+          py:  A torch.Tensor of the same dtype as px, with shape [B][S+1][T],
                representing
                  py[b][s][t] =  log [ p(y_t | x_{0..s-1}, y_{0..t-1}) / p(y_t) ]
                This function does not treat x and y differently; the only difference
-               is that the implementation assumes for optimization purposes that y
-               is likely to be the shorter sequence, i.e. that "most of the time T < S",
-               and it will be faster if you respect this.
+               is that for optimization purposes we assume the last axis (the t axis)
+               has stride of 1; this is true if px and py are contiguous.
+
           boundaries:  If supplied, a torch.LongTensor of shape [B][4], where each row contains
                [s_begin, t_begin, s_end, t_end].  If not supplied, the values
                [0, 0, S, T] will be assumed.  These are the beginning and
@@ -155,18 +157,24 @@ def mutual_information_recursion(input, px, py, boundaries=None):
     Returns:
         Returns a torch.Tensor of shape [B], containing the log of the mutuafl
         information between the b'th pair of sequences.  This is defined by
-        the following recursion on p[b,s,t] (where p is of shape [B,S,T]),
+        the following recursion on p[b,s,t] (where p is of shape [B,S+1,T+1]),
         representing a mutual information between sub-sequences of lengths s and t:
 
-             p[b,s,t] = log_add(p[b,s-1,t] + px[b,s,t], p[b,s,t-1] + py[b,s,t])
+             p[b,0,0] = 0.0
+             p[b,s,t] = log_add(p[b,s-1,t] + px[b,s-1,t],
+                                p[b,s,t-1] + py[b,s,t-1])
+                       (if s > 0 or t > 0)
 
-        where in the case where boundaries==None: the edge cases are handled
-        by treating p[b,-1,-1] as 0 and all other quantities with negative
-        indexes as -infinity; and ans[b] would equal p[S-1,T-1].  The extension to
-        cases where the boundaries are specified should be obvious.
-
+        where we handle edge cases by treating quantities with negative indexes
+        as -infinity.  The extension to cases where the boundaries are specified
+        should be obvious; it just works on shorter sequences with offsets into
+        px and py.
     """
-    assert px.ndim == 3 and px.shape == py.shape and px.dtype == py.dtype
+    assert px.ndim == 3
+    B, S, T1 = px.shape
+    T = T1 - 1
+    assert py.shape == (B, S + 1, T)
+    assert px.dtype == py.dtype
     (B, S, T) = px.shape
     if boundaries is not None:
         assert boundaries.dtype == torch.LongTensor
