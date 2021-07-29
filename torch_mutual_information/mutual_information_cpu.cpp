@@ -151,11 +151,16 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
   TORCH_CHECK(py.size(0) == B && py.size(1) == S + 1 && py.size(2) == T);
   TORCH_CHECK(p.size(0) == B && p.size(1) == S + 1 && p.size(2) == T + 1);
 
-  torch::Tensor p_grad = torch::zeros({B, S + 1, T + 1}, opts);
+  bool has_boundary = (bool)optional_boundary;
+
+  torch::Tensor p_grad = torch::zeros({B, S + 1, T + 1}, opts),
+      px_grad = (has_boundary ? torch::zeros({B, S, T + 1}, opts) :
+                 torch::empty({B, S, T + 1}, opts)),
+      py_grad = (has_boundary ? torch::zeros({B, S + 1, T}, opts) :
+                 torch::empty({B, S + 1, T}, opts));
 
   auto long_opts = torch::TensorOptions().dtype(torch::kInt64).device(px.device());
 
-  bool has_boundary = (bool)optional_boundary;
   if (!has_boundary)
     optional_boundary = torch::empty({0, 0}, long_opts);
 
@@ -166,7 +171,9 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
         auto px_a = px.packed_accessor32<scalar_t, 3>(),
             py_a = py.packed_accessor32<scalar_t, 3>(),
             p_a = p.packed_accessor32<scalar_t, 3>(),
-            p_grad_a = p.packed_accessor32<scalar_t, 3>();
+            p_grad_a = p_grad.packed_accessor32<scalar_t, 3>(),
+            px_grad_a = px_grad.packed_accessor32<scalar_t, 3>(),
+            py_grad_a = py_grad.packed_accessor32<scalar_t, 3>();
 
         auto ans_grad_a = ans_grad.packed_accessor32<scalar_t, 1>();
 
@@ -196,19 +203,17 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
               // .. which obtains p_a[b][s][t - 1] from a register.
 
               scalar_t term1 = p_a[b][s - 1][t] + px_a[b][s - 1][t],
+                  // term2 = p_a[b][s][t - 1] + py_a[b][s][t - 1], <-- not
+                  // actually needed..
                   total = p_a[b][s][t],
                   term1_deriv = exp(term1 - total),
                   term2_deriv = 1.0 - term1_deriv,
                   grad = p_grad_a[b][s][t],
                   term1_grad = term1_deriv * grad,
                   term2_grad = term2_deriv * grad;
-              // We can assign to px_grad_a here rather than add, because we
-              // know it's currently zero.
-              TORCH_CHECK(px_grad_a[b][s - 1][t] == 0);
               px_grad_a[b][s - 1][t] = term1_grad;
-              TORCH_CHECK(p_grad_a[b][s - 1][t] == 0.0);  // likewise..
-              p_grad_a[b][s - 1][t] = term1_grad
-              py_grad_a[b][s][t - 1] += term2_grad;
+              p_grad_a[b][s - 1][t] = term1_grad;
+              py_grad_a[b][s][t - 1] = term2_grad;
               p_grad_a[b][s][t - 1] += term2_grad;
             }
           }
@@ -239,111 +244,9 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
           }
         }
       }));
-  return ans;
-}
 
-
-  TORCH_CHECK(input.dim() == 3, "input must be 3-dimensional");
-  TORCH_CHECK(params.dim() == 2, "params must be 2-dimensional.");
-  TORCH_CHECK(params.size(1) >= 3 &&
-              ((params.size(1) - 1) & (params.size(1) - 2)) == 0,
-              "params.size(1) has invalid value, must be a power of 2 plus 1.");
-  TORCH_CHECK(params.size(0) == input.size(1),
-              "params vs input channels mismatch");
-  TORCH_CHECK(input.sizes() == output_grad.sizes(),
-              "Output-grad vs. input sizes mismatch.");
-
-  TORCH_CHECK(input.device().is_cpu(), "Input must be a CPU tensor");
-  TORCH_CHECK(params.device().is_cpu(), "Params must be a CPU tensor");
-  TORCH_CHECK(output_grad.device().is_cpu(), "Output-grad must be a CPU tensor");
-
-  const int B = input.size(0),
-      C = input.size(1),
-      T = input.size(2),
-      N = params.size(1) - 1,
-      K = N / 2;
-
-  auto scalar_t = input.scalar_type();
-  auto opts = torch::TensorOptions().dtype(scalar_t).device(input.device());
-
-  torch::Tensor y_vals = torch::empty({C, N}, opts),
-      y_vals_grad = torch::zeros({C, N}, opts),
-      params_grad = torch::zeros({C, N + 1}, opts),
-      input_grad = torch::zeros({B, C, T}, opts);
-
-  AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "mutual_information_backward_cpu_loop", ([&] {
-        auto params_a = params.accessor<scalar_t, 2>(),
-            params_grad_a = params_grad.accessor<scalar_t, 2>(),
-            y_vals_a = y_vals.accessor<scalar_t, 2>(),
-            y_vals_grad_a = y_vals_grad.accessor<scalar_t, 2>();
-        for (int c = 0; c < C; c++) {
-          scalar_t sum_negative = 0.0,
-              sum_positive = 0.0,
-              scale = exp(params_a[c][0]);
-          for (int i = 0; i < K; i++) {
-            scalar_t pos_scaled_param = params_a[c][1 + K + i] * scale,
-                neg_scaled_param = params_a[c][K - i] * scale;
-            y_vals_a[c][K + i] = sum_positive - pos_scaled_param * i;
-            sum_positive += pos_scaled_param;
-            sum_negative -= neg_scaled_param;
-            y_vals_a[c][K - i - 1] = sum_negative + neg_scaled_param * (i + 1);
-          }
-        }
-        auto input_a = input.accessor<scalar_t, 3>(),
-            output_grad_a = output_grad.accessor<scalar_t, 3>(),
-            input_grad_a = input_grad.accessor<scalar_t, 3>();
-
-        for (int b = 0; b < B; b++) {
-          for (int c = 0; c < C; c++) {
-            scalar_t inv_scale = exp(-params_a[c][0]);
-            for (int t = 0; t < T; t++) {
-              scalar_t input = input_a[b][c][t],
-                  x = input * inv_scale + K,
-                  output_grad = output_grad_a[b][c][t];
-              if (x < 0) x = 0;
-              else if (x >= N) x = N - 1;
-              // C++ rounds toward zero.
-              int n = (int) x;
-              // OK, at this point, 0 <= n < 2*K.
-              // backprop for:
-              // output_a[b][c][t] = input * params_a[c][n + 1] + y_vals_a[c][n];
-              params_grad_a[c][n + 1] += output_grad * input;
-              y_vals_grad_a[c][n] += output_grad;
-              input_grad_a[b][c][t] = output_grad * params_a[c][n + 1];
-            }
-          }
-        }
-        // Now do the backprop for the loop above where we set y_vals_a.
-        for (int c = 0; c < C; c++) {
-          scalar_t scale = exp(params_a[c][0]),
-              scale_grad = 0.0,
-              sum_negative_grad = 0.0,
-              sum_positive_grad = 0.0;
-          for (int i = K - 1; i >= 0; i--) {
-            // Backprop for: y_vals_a[c][K - i - 1] = sum_negative + neg_scaled_param * (i + 1):
-            scalar_t y_grad_neg = y_vals_grad_a[c][K - i - 1];
-            sum_negative_grad += y_grad_neg;
-            scalar_t neg_scaled_param_grad = y_grad_neg * (i + 1);
-            // Backprop for: sum_negative -= neg_scaled_param;
-            neg_scaled_param_grad -= sum_negative_grad;
-            // Backprop for: sum_positive += pos_scaled_param;
-            scalar_t pos_scaled_param_grad = sum_positive_grad;
-            // Backprop for: y_vals_a[c][K + i] = sum_positive - pos_scaled_param * i;
-            scalar_t y_grad_pos = y_vals_grad_a[c][K + i];
-            pos_scaled_param_grad -= i * y_grad_pos;
-            sum_positive_grad += y_grad_pos;
-            // Backprop for: pos_scaled_param = params_a[c][1 + K + i] * scale,
-            //        and:  neg_scaled_param = params_a[c][K - i] * scale;
-            params_grad_a[c][1 + K + i] += pos_scaled_param_grad * scale;
-            params_grad_a[c][K - i] += neg_scaled_param_grad * scale;
-            scale_grad += (pos_scaled_param_grad * params_a[c][1 + K + i] +
-                           neg_scaled_param_grad * params_a[c][K - i]);
-          }
-          // Backprop for: scale = exp(params_a[c][0]),
-          params_grad_a[c][0] += scale * scale_grad;
-        }
-      }));
-  return std::vector<torch::Tensor>({input_grad, params_grad});
+  std::cout << "p_grad = " << p_grad;
+  return std::vector<torch::Tensor>({px_grad, py_grad});
 }
 
 

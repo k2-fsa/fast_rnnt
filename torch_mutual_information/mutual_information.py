@@ -44,66 +44,72 @@ except ImportError:
 
 
 def _mutual_information_forward_dispatcher(px: torch.Tensor, py: torch.Tensor,
-                                           boundaries: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+                                           boundaries: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
     if input.is_cuda:
         if torch_mutual_information_cuda is None:
             raise EnvironmentError(f'Failed to load native CUDA module')
         return torch_mutual_information_cuda.mutual_information_cuda(
-            px, py, boundaries, q)
+            px, py, boundaries, p)
     else:
         return torch_mutual_information_cpu.mutual_information_cpu(
-            px, py, boundaries, q)
+            px, py, boundaries, p)
 
 def _mutual_information_backward_dispatcher(px: torch.Tensor, py: torch.Tensor,
-                                            boundaries: torch.Tensor, q: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+                                            boundaries: torch.Tensor, p: torch.Tensor,
+                                            ans_grad: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     if px.is_cuda:
         if torch_mutual_information_cuda is None:
             raise EnvironmentError(f'Failed to load native CUDA module')
-        return tuple(torch_mutual_information_cuda.mutual_information_backward_cuda(
-            px, py, boundaries, q))
-
+        overwrite_ans_grad = True
+        if overwrite_ans_grad:
+            ans_grad_copy = ans_grad.clone()
+        ans = tuple(torch_mutual_information_cuda.mutual_information_backward_cuda(
+            px, py, boundaries, p, ans_grad_copy, overwrite_ans_grad))
+        if overwrite_ans_grad:
+            if not torch.allclose(ans_grad, ans_grad_copy, rtol=1.0e-02):
+                print(f"Warning: possible excsssive roundoff in mutual information backward "
+                      "recursion: {ans_grad} vs. {ans_grad_copy}");
+        return ans
     else:
         return tuple(torch_mutual_information_cpu.mutual_information_backward_cpu(
-            px, py, boundaries, q))
+            px, py, boundaries, p, ans_grad))
 
 
 
 class MutualInformationRecursionFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, px: torch.Tensor, py: torch.Tensor, boundaries: torch.Tensor) -> torch.Tensor:
-        (B, S, T) = px.shape
+    def forward(ctx, px: torch.Tensor, py: torch.Tensor, boundaries: Optional[torch.Tensor]) -> torch.Tensor:
+        (B, S, T1) = px.shape
+        T = T1 - 1;
+        assert py.shape == (B, S + 1, T)
+        if boundaries is not None:
+            assert boundaries.shape == (B, 4)
 
 
-        # p is a tensor of shape (B, S + 1, T + 1) were p[s][t] is related to
+        # p is a tensor of shape (B, S + 1, T + 1) were p[s][t] is the
         # the mutual information of the pair of subsequences of x and y that are of
         # length s and t respectively.  p[0][0] will be 0.0 and p[S][T] is
         # the mutual information of the entire pair of sequences, i.e. of lengths
         # S and T respectively.
-
-
-        # q is a rearrangement of a tensor p which is of shape (B,S,T),
-        # using p[b,s,t] == q[b,s+t,t].  The reason for working with this
-        # representation is that each row of q depends only on the previous row,
-        # so we can access the rows sequenctially and this leads to
-        # better memory access patterns.  We are assuming that most likely
-        # T < S, which means that q should not require much more memory than p.
-        #
-        # Actually we access q beginning from 0 indexes even if `boundaries`
-        # has t_begin > 0 or s_begin > 0, i.e. we really access q as
-        #   q[b, s-s_begin + t-t_begin, t-t_begin];
-        # note, rows of `boundaries` are [s_begin, t_begin, s_end, t_end].
+        # It is computed as follows (in C++ and CUDA):
+        #       p[b,0,0] = 0.0
+        #       p[b,s,t] = log_add(p[b,s-1,t] + px[b,s-1,t],
+        #                          p[b,s,t-1] + py[b,s,t-1])
+        #               if s > 0 or t > 0,
+        #               treating values with any -1 index as -infinity.
+        #      .. if `boundary` is set, we start fom p[b,s_begin,t_begin]=0.0.
 
         p = torch.empty(B, S + 1, T + 1, device=px.device, dtype=px.dtype)
 
         ans = _mutual_information_forward_dispatcher(px, py, boundaries, p)
 
         if px.requires_grad or py.requires_grad:
-            ctx.save_for_backward(px, py, boundaries, q)
+            ctx.save_for_backward(px, py, boundaries, p)
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
-        (px, py, boundaries, q) = ctx.saved_tensors
-        (px_grad, py_grad) = _mutual_information_backward_dispatcher(px, py, boundaries, q)
+        (px, py, boundaries, p) = ctx.saved_tensors
+        (px_grad, py_grad) = _mutual_information_backward_dispatcher(px, py, boundaries, p, ans_grad)
         return (px_grad, py_grad, None)
 
 
