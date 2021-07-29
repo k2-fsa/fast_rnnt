@@ -1,7 +1,6 @@
 #include <torch/extension.h>
 
 
-
 /*
   Forward of mutual_information.  See also """... """ comment of
   `mutual_information` in mutual_information.py.  This It is the core recursion
@@ -33,8 +32,9 @@
               contains, where for each batch element b, boundary[b] equals
               [s_begin, t_begin, s_end, t_end]
               which are the beginning and end (i.e. one-past-the-last) of the
-              x and y sequences that we should process.  If not set, these
-              default to (0, 0, S, T); and they should not exceed these bounds.
+              x and y sequences that we should process.  Alternatively, may be
+              a tensor of shape [0][0] and type int64_t; the elements will
+              default to (0, 0, S, T).
      ans: a tensor `ans` of shape [B], where this function will set
             ans[b] = p[b][s_end][t_end],
             with s_end and t_end being (S, T) if `boundary` was specified,
@@ -48,7 +48,7 @@
 */
 torch::Tensor mutual_information_cuda(torch::Tensor px,  // [B][S][T+1]
                                       torch::Tensor py,  // [B][S+1][T]
-                                      std::optional<torch::Tensor> boundary_info,  // [B][4], int64_t.
+                                      torch::Tensor boundary,  // [B][4], int64_t.
                                       torch::Tensor p);  //  [B][S+1][T+1]; an output
 
 
@@ -63,7 +63,7 @@ torch::Tensor mutual_information_cuda(torch::Tensor px,  // [B][S][T+1]
 std::vector<torch::Tensor> mutual_information_backward_cuda(
     torch::Tensor px,
     torch::Tensor py,
-    std::optional<torch::Tensor> boundary_info,
+    torch::Tensor boundary,
     torch::Tensor p,
     torch::Tensor ans_grad,
     bool overwrite_ans_grad);
