@@ -1,7 +1,8 @@
 import os
 
 import torch
-from typing import Tuple
+from torch import Tensor
+from typing import Tuple, Optional
 from torch.utils.cpp_extension import load
 
 VERBOSE = False
@@ -44,18 +45,18 @@ except ImportError:
 
 
 def _mutual_information_forward_dispatcher(px: torch.Tensor, py: torch.Tensor,
-                                           boundaries: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
-    if input.is_cuda:
+                                           boundary: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+    if px.is_cuda:
         if torch_mutual_information_cuda is None:
             raise EnvironmentError(f'Failed to load native CUDA module')
         return torch_mutual_information_cuda.mutual_information_cuda(
-            px, py, boundaries, p)
+            px, py, boundary, p)
     else:
         return torch_mutual_information_cpu.mutual_information_cpu(
-            px, py, boundaries, p)
+            px, py, boundary, p)
 
 def _mutual_information_backward_dispatcher(px: torch.Tensor, py: torch.Tensor,
-                                            boundaries: torch.Tensor, p: torch.Tensor,
+                                            boundary: torch.Tensor, p: torch.Tensor,
                                             ans_grad: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     if px.is_cuda:
         if torch_mutual_information_cuda is None:
@@ -64,7 +65,7 @@ def _mutual_information_backward_dispatcher(px: torch.Tensor, py: torch.Tensor,
         if overwrite_ans_grad:
             ans_grad_copy = ans_grad.clone()
         ans = tuple(torch_mutual_information_cuda.mutual_information_backward_cuda(
-            px, py, boundaries, p, ans_grad_copy, overwrite_ans_grad))
+            px, py, boundary, p, ans_grad_copy, overwrite_ans_grad))
         if overwrite_ans_grad:
             if not torch.allclose(ans_grad, ans_grad_copy, rtol=1.0e-02):
                 print(f"Warning: possible excsssive roundoff in mutual information backward "
@@ -72,18 +73,20 @@ def _mutual_information_backward_dispatcher(px: torch.Tensor, py: torch.Tensor,
         return ans
     else:
         return tuple(torch_mutual_information_cpu.mutual_information_backward_cpu(
-            px, py, boundaries, p, ans_grad))
+            px, py, boundary, p, ans_grad))
 
 
 
 class MutualInformationRecursionFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, px: torch.Tensor, py: torch.Tensor, boundaries: Optional[torch.Tensor]) -> torch.Tensor:
+    def forward(ctx, px: torch.Tensor, py: torch.Tensor, boundary: Optional[torch.Tensor]) -> torch.Tensor:
         (B, S, T1) = px.shape
         T = T1 - 1;
         assert py.shape == (B, S + 1, T)
-        if boundaries is not None:
-            assert boundaries.shape == (B, 4)
+        if boundary is not None:
+            assert boundary.shape == (B, 4)
+        else:
+            boundary = torch.zeros(0, 0, dtype=torch.int64, device=px.device)
 
 
         # p is a tensor of shape (B, S + 1, T + 1) were p[s][t] is the
@@ -101,20 +104,23 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
 
         p = torch.empty(B, S + 1, T + 1, device=px.device, dtype=px.dtype)
 
-        ans = _mutual_information_forward_dispatcher(px, py, boundaries, p)
+        ans = _mutual_information_forward_dispatcher(px, py, boundary, p)
+
+        print(f"p = {p}, boundary = {boundary}")
 
         if px.requires_grad or py.requires_grad:
-            ctx.save_for_backward(px, py, boundaries, p)
+            ctx.save_for_backward(px, py, boundary, p)
+        return ans
 
     @staticmethod
     def backward(ctx, ans_grad: Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
-        (px, py, boundaries, p) = ctx.saved_tensors
-        (px_grad, py_grad) = _mutual_information_backward_dispatcher(px, py, boundaries, p, ans_grad)
+        (px, py, boundary, p) = ctx.saved_tensors
+        (px_grad, py_grad) = _mutual_information_backward_dispatcher(px, py, boundary, p, ans_grad)
         return (px_grad, py_grad, None)
 
 
 
-def mutual_information_recursion(input, px, py, boundaries=None):
+def mutual_information_recursion(px, py, boundary=None):
     """A recursion that is useful in computing mutual information between two sequences of
     real vectors, but may be useful more generally in sequence-to-sequence tasks where
     monotonic alignment between pairs of sequences is desired.  The definitions of
@@ -154,7 +160,7 @@ def mutual_information_recursion(input, px, py, boundaries=None):
                is that for optimization purposes we assume the last axis (the t axis)
                has stride of 1; this is true if px and py are contiguous.
 
-          boundaries:  If supplied, a torch.LongTensor of shape [B][4], where each row contains
+          boundary:  If supplied, a torch.LongTensor of shape [B][4], where each row contains
                [s_begin, t_begin, s_end, t_end].  If not supplied, the values
                [0, 0, S, T] will be assumed.  These are the beginning and
                one-past-the-last positions in the x and y sequences
@@ -182,8 +188,9 @@ def mutual_information_recursion(input, px, py, boundaries=None):
     assert py.shape == (B, S + 1, T)
     assert px.dtype == py.dtype
     (B, S, T) = px.shape
-    if boundaries is not None:
-        assert boundaries.dtype == torch.LongTensor
-        assert boundaries.shape == (B, 4)
+    if boundary is not None:
+        assert boundary.dtype == torch.LongTensor
+        assert boundary.shape == (B, 4)
 
-    return MutualInformationRecursion.apply(px, py, boundaries)
+
+    return MutualInformationRecursionFunction.apply(px, py, boundary)

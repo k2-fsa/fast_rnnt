@@ -519,7 +519,7 @@ void mutual_information_backward_kernel(
   // comments.  We'll focus, in the comments, on differences from the forward
   // pass.
   const int num_s_blocks = S / BLOCK_SIZE + 1,
-      num_t_blocks = T / BLOCK_SIZE + 1,
+      // num_t_blocks = T / BLOCK_SIZE + 1,
       num_blocks_this_iter = min(iter + 1, num_s_blocks);
 
 
@@ -668,7 +668,7 @@ void mutual_information_backward_kernel(
           s = s_in_block + s_block_begin,
           t = t_in_block + t_block_begin;
       p_buf[s_in_block][t_in_block] = (
-          s <= s_end && t <= t_end ? p_grad[s][t] : 0.0);
+          s <= s_end && t <= t_end ? p_grad[b][s][t] : 0.0);
     } else if (static_cast<unsigned int>((int)threadIdx.x - 64) <
                static_cast<unsigned int>(block_T)) {
       // casting to unsigned before the comparison tests for both negative and
@@ -678,7 +678,7 @@ void mutual_information_backward_kernel(
                    s = s_in_block + s_block_begin,
                    t = t_in_block + t_block_begin;
       p_buf[s_in_block][t_in_block] = (
-          s <= s_end && t <= t_end ? p_grad[s][t] : 0.0);
+          s <= s_end && t <= t_end ? p_grad[b][s][t] : 0.0);
     }
 
     //  The highest-numbered value in p_buf that we need (corresponding,

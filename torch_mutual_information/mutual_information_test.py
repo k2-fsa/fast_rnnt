@@ -3,71 +3,23 @@
 
 import random
 import torch
-from torch_mutual_information import mutual_information
+from torch_mutual_information import mutual_information_recursion
 
 
 def test_mutual_information_basic():
+    print("Running test_mutual_information_basic()")
     for dtype in [torch.float32, torch.float64]:
         B = 2
-        C = 4
-        T = 10
-        x = -2.0 + 0.4 * torch.arange(10, dtype=dtype)
-        x = x.reshape(1, 1, 10).repeat(B, C, 1)
+        S = 4
+        T = 5
+        px = torch.zeros(B, S, T + 1)  # log of an odds ratio
+        py = torch.zeros(B, S + 1, T)  # log of an odds ratio
 
 
-        K = 4
-        N = K * 2
-        params = torch.arange(N + 1, dtype=dtype).unsqueeze(0) + torch.arange(C, dtype=dtype).unsqueeze(1) - 3
-        x.requires_grad = True
-        params.requires_grad = True
-        print("x = ", x)
-        print("params = ", params)
-        print("x.shape = ", x.shape)
+        m = mutual_information_recursion(px, py)
 
-        y = mutual_information(x, params, dim = 1)
+        print("m = ", m)
 
-
-        if True:
-            # Check
-            x2 = x.reshape(B, C, 5, 2)
-            assert torch.allclose(mutual_information(x, params, dim = 1), mutual_information(x2, params, dim = 1).reshape(x.shape))
-
-            x2 = x.reshape(B, 1, C, 10)
-            assert torch.allclose(mutual_information(x, params, dim = 1), mutual_information(x2, params, dim = 2).reshape(x.shape))
-
-
-
-        print("y = ", y)
-        y.sum().backward()
-
-        if torch.cuda.is_available():
-            # test that the CUDA forward is the same as the CPU forward.
-            device = torch.device('cuda:0')
-            x2 = x.to(device).detach()
-            x2.requires_grad = True
-            params2 = params.to(device).detach()
-            params2.requires_grad = True
-            y2 = mutual_information(x2, params2, dim = 1).to(torch.device('cpu'))
-            print("Checking CUDA is same")
-            if not torch.allclose(y, y2, atol=1.0e-06):
-                print(f"Error: CPU versus CUDA not the same: {y} vs. {y2}, diff = {y2-y}")
-                assert(0);
-
-            y2.sum().backward()
-
-            if not torch.allclose(x.grad, x2.grad.to('cpu'), atol=1.0e-06):
-                print(f"Error: CPU x-grad versus CUDA grad not the same: {x.grad} vs. {x2.grad}, diff = {x2.grad.to('cpu')-x.grad}")
-                assert(0);
-            if not torch.allclose(params.grad, params2.grad.to('cpu'), atol=1.0e-06):
-                print(f"Error: CPU params-grad versus CUDA grad not the same: {params.grad} vs. {params2.grad}, diff = {params2.grad.to('cpu')-params.grad}")
-                assert(0);
-
-
-
-        print("x.grad = ", x.grad)
-        print("params.grad = ", params.grad)
-
-        # Just eyeballing the above tgo make sure it looks reasonable.
 
 
 def test_mutual_information_deriv():
