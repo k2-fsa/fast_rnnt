@@ -9,16 +9,19 @@ from torch_mutual_information import mutual_information_recursion
 def test_mutual_information_basic():
     print("Running test_mutual_information_basic()")
     for dtype in [torch.float32, torch.float64]:
-        B = 2
-        S = 4
-        T = 5
-        px = torch.zeros(B, S, T + 1)  # log of an odds ratio
-        py = torch.zeros(B, S + 1, T)  # log of an odds ratio
+        for device in [ torch.device('cpu'), torch.device('cuda:0') ]:
+            print("dtype = ", dtype, ", device = ", device)
+            B = 2
+            S = 4
+            T = 5
+            boundary = torch.tensor([ 0, 0, S, T ], dtype=torch.int64).unsqueeze(0).expand(B, 4).to(device)
+            px = torch.zeros(B, S, T + 1).to(device)  # log of an odds ratio
+            py = torch.zeros(B, S + 1, T).to(device)  # log of an odds ratio
 
+            m = mutual_information_recursion(px, py, boundary)
 
-        m = mutual_information_recursion(px, py)
-
-        print("m = ", m)
+            print("m = ", m)
+            print("exp(m) = ", m.exp())
 
 
 

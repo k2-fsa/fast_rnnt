@@ -189,7 +189,7 @@ def mutual_information_recursion(px, py, boundary=None):
     assert px.dtype == py.dtype
     (B, S, T) = px.shape
     if boundary is not None:
-        assert boundary.dtype == torch.LongTensor
+        assert boundary.dtype == torch.int64
         assert boundary.shape == (B, 4)
 
 
