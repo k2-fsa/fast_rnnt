@@ -12,13 +12,14 @@ def test_mutual_information_basic():
         for device in [ torch.device('cpu'), torch.device('cuda:0') ]:
             print("dtype = ", dtype, ", device = ", device)
             B = 2
-            S = 4
-            T = 5
+            S = 17
+            T = 17
             boundary = torch.tensor([ 0, 0, S, T ], dtype=torch.int64).unsqueeze(0).expand(B, 4).to(device)
             px = torch.zeros(B, S, T + 1).to(device)  # log of an odds ratio
             py = torch.zeros(B, S + 1, T).to(device)  # log of an odds ratio
 
-            m = mutual_information_recursion(px, py, boundary)
+            m = mutual_information_recursion(px, py, None)
+            #m = mutual_information_recursion(px, py, boundary)
 
             print("m = ", m)
             print("exp(m) = ", m.exp())
