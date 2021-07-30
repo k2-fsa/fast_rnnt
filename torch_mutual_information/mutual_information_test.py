@@ -9,20 +9,35 @@ from torch_mutual_information import mutual_information_recursion
 def test_mutual_information_basic():
     print("Running test_mutual_information_basic()")
     for dtype in [torch.float32, torch.float64]:
+        px_grads = []
+        py_grads = []
         for device in [ torch.device('cpu'), torch.device('cuda:0') ]:
             print("dtype = ", dtype, ", device = ", device)
             B = 2
-            S = 33
-            T = 33
+            S = 14
+            T = 14
             boundary = torch.tensor([ 0, 0, S, T ], dtype=torch.int64).unsqueeze(0).expand(B, 4).to(device)
             px = torch.zeros(B, S, T + 1, dtype=dtype).to(device)  # log of an odds ratio
             py = torch.zeros(B, S + 1, T, dtype=dtype).to(device)  # log of an odds ratio
+            px.requires_grad = True
+            py.requires_grad = True
 
-            m = mutual_information_recursion(px, py, None)
-            #m = mutual_information_recursion(px, py, boundary)
+            #m = mutual_information_recursion(px, py, None)
+            m = mutual_information_recursion(px, py, boundary)
 
             print("m = ", m, ", size = ", m.shape)
             print("exp(m) = ", m.exp())
+            (m.sum() * 3).backward()
+            print("px_grad = ", px.grad)
+            print("py_grad = ", py.grad)
+            px_grads.append(px.grad.to('cpu'))
+            py_grads.append(py.grad.to('cpu'))
+        if not torch.allclose(px_grads[0], px_grads[1]):
+            print(f"px_grads differed CPU vs CUDA: {px_grads[0]} vs. {px_grads[1]}")
+            assert 0
+        if not torch.allclose(py_grads[0], py_grads[1]):
+            print(f"py_grads differed CPU vs CUDA: {py_grads[0]} vs. {py_grads[1]}")
+            assert 0
 
 
 

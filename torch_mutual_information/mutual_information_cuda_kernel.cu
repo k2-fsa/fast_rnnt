@@ -750,6 +750,8 @@ void mutual_information_backward_kernel(
       }
     }
 
+    __syncthreads();
+
     // Write out p_grad, px_grad and py_grad.
     for (int i = threadIdx.x; i < BLOCK_SIZE * BLOCK_SIZE; i += blockDim.x) {
       int s_in_block = i / BLOCK_SIZE,
@@ -881,7 +883,7 @@ mutual_information_backward_cuda(torch::Tensor px,
   torch::Tensor p_grad = torch::empty({B, S + 1, T + 1}, opts),
       px_grad = (has_boundary ? torch::zeros({B, S, T + 1}, opts) :
                  torch::empty({B, S, T + 1}, opts)),
-      py_grad = (has_boundary ? torch::zeros({B, S, T + 1}, opts) :
+      py_grad = (has_boundary ? torch::zeros({B, S + 1, T}, opts) :
                  torch::empty({B, S + 1, T}, opts));
 
   // num_threads and num_blocks and BLOCK_SIZE can be tuned.

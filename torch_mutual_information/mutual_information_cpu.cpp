@@ -192,11 +192,11 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
 
           for (int s = s_end; s > s_begin; --s) {
             for (int t = t_end; t > t_begin; --t) {
+              // The s,t indexes correspond to
               // The statement we are backpropagating here is:
               // p_a[b][s][t] = LogAdd(p_a[b][s - 1][t] + px_a[b][s - 1][t],
               //                       p_a[b][s][t - 1] + py_a[b][s][t - 1]);
               // .. which obtains p_a[b][s][t - 1] from a register.
-
               scalar_t term1 = p_a[b][s - 1][t] + px_a[b][s - 1][t],
                   // term2 = p_a[b][s][t - 1] + py_a[b][s][t - 1], <-- not
                   // actually needed..
@@ -212,19 +212,19 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
               p_grad_a[b][s][t - 1] += term2_grad;
             }
           }
-          for (int t = t_end; t >= t_begin; --t) {
+          for (int t = t_end; t > t_begin; --t) {
             // Backprop for:
             // p_a[b][s_begin][t] = p_a[b][s_begin][t - 1] + py_a[b][s_begin][t - 1];
             scalar_t this_p_grad = p_grad_a[b][s_begin][t];
             p_grad_a[b][s_begin][t - 1] += this_p_grad;
-            py_grad_a[b][s_begin][t - 1] += this_p_grad;
+            py_grad_a[b][s_begin][t - 1] = this_p_grad;
           }
-          for (int s = s_end; s >= s_begin; --s) {
+          for (int s = s_end; s > s_begin; --s) {
             // Backprop for:
             // p_a[b][s][t_begin] = p_a[b][s - 1][t_begin] + px_a[b][s - 1][t_begin];
-            scalar_t this_p_grad = p_grad_a[b][s][s_begin];
-            p_a[b][s - 1][t_begin] += this_p_grad;
-            px_a[b][s - 1][t_begin] += this_p_grad;
+            scalar_t this_p_grad = p_grad_a[b][s][t_begin];
+            p_grad_a[b][s - 1][t_begin] += this_p_grad;
+            px_grad_a[b][s - 1][t_begin] = this_p_grad;
           }
           // There is no backprop for:
           // p_a[b][s_begin][t_begin] = 0.0;
@@ -232,7 +232,7 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
           // of the sequence is equal to the grad at the end of the sequence.
           if (ans_grad_a[b] != 0.0) {
             float grad_ratio = p_a[b][s_begin][t_begin] / ans_grad_a[b];
-            if (grad_ratio - 1.0 > 0.01) {
+            if (fabs(grad_ratio - 1.0) > 0.01) {
               printf("Warning: mutual_information backprop: expected these numbers to be the same: %f vs. %f\n",
                      (float)p_a[b][s_begin][t_begin], (float)ans_grad_a[b]);
             }
