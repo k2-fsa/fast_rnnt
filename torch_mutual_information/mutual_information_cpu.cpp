@@ -97,8 +97,8 @@ torch::Tensor mutual_information_cpu(torch::Tensor px,
             t_end = boundary_a[b][3];
           } else {
             s_begin = 0;
-            s_end = S;
             t_begin = 0;
+            s_end = S;
             t_end = T;
           }
           p_a[b][s_begin][t_begin] = 0.0;

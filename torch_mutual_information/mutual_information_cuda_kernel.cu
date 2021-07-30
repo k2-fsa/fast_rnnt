@@ -208,16 +208,16 @@ void mutual_information_kernel(
           t_in_block = i % BLOCK_SIZE,
           s = s_in_block + s_block_begin,
           t = t_in_block + t_block_begin;
-
       // comparing as unsigned int makes sure the index is nonnegative.
+      // Caution: if s_begin > 0 or t_begin > 0 we may end up loading some px and
+      // py values that are outside the proper boundaries that we need, but
+      // the corresponding p_buf values will end up being 0 so this won't matter.
       scalar_t this_px = 0.0;
-      if (static_cast<unsigned int>(s - 1) < static_cast<unsigned int>(s_end) &&
-          t <= t_end)
+      if (s > s_begin && s <= s_end && t <= t_end)
         this_px = exp(px[b][s - 1][t]);
       px_buf[s_in_block][t_in_block] = this_px;
       scalar_t this_py = 0.0;
-      if (static_cast<unsigned int>(t - 1) < static_cast<unsigned int>(t_end) &&
-          s <= s_end)
+      if (t > t_begin && t <= t_end && s <= s_end)
         this_py = exp(py[b][s][t - 1]);
       py_buf[s_in_block][t_in_block] = this_py;
     }
@@ -234,31 +234,27 @@ void mutual_information_kernel(
           s = s_in_p_buf + s_block_begin - 1,
           t = t_in_p_buf + t_block_begin - 1;
       scalar_t this_p = -INFINITY;
-      if (static_cast<unsigned int>(s) <= static_cast<unsigned int>(s_end) &&
-          static_cast<unsigned int>(t) <= static_cast<unsigned int>(t_end)) {
+      if (s >= s_begin && s <= s_end &&
+          t >= t_begin && t <= t_end)
         this_p = p[b][s][t];
-        /*printf("p[%d][%d][%d] = %f, threadIdx.x = %d, px = %f, py = %f\n", b, s, t, (float)this_p, (int)threadIdx.x,
+      /*printf("p[%d][%d][%d] = %f, threadIdx.x = %d, px = %f, py = %f\n", b, s, t, (float)this_p, (int)threadIdx.x,
           (float)px_buf[s_in_p_buf][t_in_p_buf], (float)py_buf[s_in_p_buf][t_in_p_buf]); */
-      }
       p_buf[s_in_p_buf][t_in_p_buf] = this_p;
-    } else {
+    } else if (static_cast<unsigned int>(int(threadIdx.x) - 64) <=
+               static_cast<unsigned int>(BLOCK_SIZE)) {
       // Another warp handles the other leg.  Checking as unsigned
       // tests that threadIdx.x - 64 is both >= 0 and <= BLOCK_SIZE
-      if (static_cast<unsigned int>(int(threadIdx.x) - 64) <=
-          static_cast<unsigned int>(BLOCK_SIZE)) {
-        int s_in_p_buf = 0,
-            t_in_p_buf = (int)threadIdx.x - 64,
-            s = s_in_p_buf + s_block_begin - 1,
-            t = t_in_p_buf + t_block_begin - 1;
-        scalar_t this_p = -INFINITY;
-        if (static_cast<unsigned int>(s) <= static_cast<unsigned int>(s_end) &&
-            static_cast<unsigned int>(t) <= static_cast<unsigned int>(t_end)) {
-          this_p = p[b][s][t];
-          /*printf("p[%d][%d][%d] = %f, threadIdx.x = %d, px = %f, py = %f\n", b, s, t, (float)this_p, (int)threadIdx.x,
-            (float)px_buf[s_in_p_buf][t_in_p_buf], (float)py_buf[s_in_p_buf][t_in_p_buf]);*/
-        }
-        p_buf[s_in_p_buf][t_in_p_buf] = this_p;
-      }
+      int s_in_p_buf = 0,
+          t_in_p_buf = (int)threadIdx.x - 64,
+          s = s_in_p_buf + s_block_begin - 1,
+          t = t_in_p_buf + t_block_begin - 1;
+      scalar_t this_p = -INFINITY;
+      if (s >= s_begin && s <= s_end &&
+          t >= t_begin && t <= t_end)
+        this_p = p[b][s][t];
+      /*printf("p[%d][%d][%d] = %f, threadIdx.x = %d, px = %f, py = %f\n", b, s, t, (float)this_p, (int)threadIdx.x,
+        (float)px_buf[s_in_p_buf][t_in_p_buf], (float)py_buf[s_in_p_buf][t_in_p_buf]);*/
+      p_buf[s_in_p_buf][t_in_p_buf] = this_p;
     }
 
     __syncthreads();
@@ -421,10 +417,10 @@ void mutual_information_kernel(
               static_cast<unsigned int>(block_T)) {
             int s = s_in_block + s_block_begin,
                 t = t_in_block + t_block_begin;
-            float p_s1 = (s == 0  ? -INFINITY : p[b][s - 1][t]),
-                this_px = (s == 0 ? -INFINITY : px[b][s - 1][t]),
-                p_t1 = (t == 0 ? -INFINITY : p[b][s][t - 1]),
-                this_py = (t == 0 ? -INFINITY : py[b][s][t - 1]);
+            float p_s1 = (s == s_begin  ? -INFINITY : p[b][s - 1][t]),
+                this_px = (s == s_begin ? -INFINITY : px[b][s - 1][t]),
+                p_t1 = (t == t_begin ? -INFINITY : p[b][s][t - 1]),
+                this_py = (t == t_begin ? -INFINITY : py[b][s][t - 1]);
             float this_p = LogAdd(p_s1 + this_px,
                                   p_t1 + this_py);
             if (i == 0 && is_origin_block)
@@ -433,6 +429,7 @@ void mutual_information_kernel(
           }
         }
       }
+      __syncwarp();
       if (threadIdx.x == 0) {
         // Write `ans`, if this is the final (top-right) block in its sequence.
         // This is only reached in the 'panic situation' where we had overflow.
@@ -650,6 +647,7 @@ void mutual_information_backward_kernel(
         this_py = py[b][s][t];
       py_buf[s_in_block][t_in_block] = this_py;
     }
+    __syncthreads();
 
     // load p.  We could use BLOCK_SIZE + 1 here, but we use + 8 to hopefully keep
     // reads more aligned.
@@ -669,6 +667,8 @@ void mutual_information_backward_kernel(
       p_buf[s_in_block][t_in_block] = this_p;
     }
 
+    __syncthreads();
+
     // Set xderiv and yderiv; see (eq. 4) and (eq. 5).
     for (int i = threadIdx.x; i < BLOCK_SIZE * BLOCK_SIZE; i += blockDim.x) {
       // We can apply this formula to the entire block even if we are processing
@@ -686,6 +686,8 @@ void mutual_information_backward_kernel(
       // (with an offset on the s and t indexes)
       py_buf[s][t] = exp(p_buf[s][t] + py_buf[s][t] - p_buf[s][t + 1]);
     }
+
+    __syncthreads();
 
     // Load p_grad for the top and right elements in p_buf: i.e. for elements
     // p_buf[s][t] where s == block_S (exclusive-or) t == block_T.  We don't
@@ -713,6 +715,8 @@ void mutual_information_backward_kernel(
       p_buf[s_in_block][t_in_block] = (
           s <= s_end && t <= t_end ? p_grad[b][s][t] : 0.0);
     }
+
+    __syncthreads();
 
     //  The highest-numbered value in p_buf that we need (corresponding,
     // of course, to p_grad), is:

@@ -68,7 +68,7 @@ def _mutual_information_backward_dispatcher(px: torch.Tensor, py: torch.Tensor,
             px, py, boundary, p, ans_grad_copy, overwrite_ans_grad))
         if overwrite_ans_grad:
             if not torch.allclose(ans_grad, ans_grad_copy, rtol=1.0e-02):
-                print(f"Warning: possible excsssive roundoff in mutual information backward "
+                print(f"Warning: possible excesssive roundoff in mutual information backward "
                       f"recursion: {ans_grad} vs. {ans_grad_copy}");
         return ans
     else:
@@ -106,7 +106,7 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
 
         ans = _mutual_information_forward_dispatcher(px, py, boundary, p)
 
-        #print(f"p = {p}, boundary = {boundary}")
+        print(f"p = {p}, boundary = {boundary}")
 
         if px.requires_grad or py.requires_grad:
             ctx.save_for_backward(px, py, boundary, p)
