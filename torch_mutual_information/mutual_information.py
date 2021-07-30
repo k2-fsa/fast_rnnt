@@ -69,7 +69,7 @@ def _mutual_information_backward_dispatcher(px: torch.Tensor, py: torch.Tensor,
         if overwrite_ans_grad:
             if not torch.allclose(ans_grad, ans_grad_copy, rtol=1.0e-02):
                 print(f"Warning: possible excsssive roundoff in mutual information backward "
-                      "recursion: {ans_grad} vs. {ans_grad_copy}");
+                      f"recursion: {ans_grad} vs. {ans_grad_copy}");
         return ans
     else:
         return tuple(torch_mutual_information_cpu.mutual_information_backward_cpu(

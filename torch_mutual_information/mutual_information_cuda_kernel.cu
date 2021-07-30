@@ -384,7 +384,7 @@ void mutual_information_kernel(
         p[b][s][t] = normalizer + log(this_p);
         // If this_p is infinity or NaN..
         if (this_p - this_p != 0) {
-          printf("[panic] threadIdx.x = %d, this_p = %f\n", (int)threadIdx.x, (float)this_p);
+          // printf("[panic] threadIdx.x = %d, this_p = %f\n", (int)threadIdx.x, (float)this_p);
           p_buf[0][0] = 1.0;  // This is a "panic" flag.
         }
       }
