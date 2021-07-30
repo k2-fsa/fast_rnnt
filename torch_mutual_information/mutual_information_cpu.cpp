@@ -231,16 +231,16 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
           // .. but we can use this for a check, that the grad at the beginning
           // of the sequence is equal to the grad at the end of the sequence.
           if (ans_grad_a[b] != 0.0) {
-            float grad_ratio = p_a[b][s_begin][t_begin] / ans_grad_a[b];
+            float grad_ratio = p_grad_a[b][s_begin][t_begin] / ans_grad_a[b];
             if (fabs(grad_ratio - 1.0) > 0.01) {
               printf("Warning: mutual_information backprop: expected these numbers to be the same: %f vs. %f\n",
-                     (float)p_a[b][s_begin][t_begin], (float)ans_grad_a[b]);
+                     (float)p_grad_a[b][s_begin][t_begin], (float)ans_grad_a[b]);
             }
           }
         }
       }));
 
-  std::cout << "p_grad = " << p_grad;
+  // std::cout << "p_grad = " << p_grad;
   return std::vector<torch::Tensor>({px_grad, py_grad});
 }
 

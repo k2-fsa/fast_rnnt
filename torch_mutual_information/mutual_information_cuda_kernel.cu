@@ -915,6 +915,6 @@ mutual_information_backward_cuda(torch::Tensor px,
               overwrite_ans_grad);
         }
       }));
-  std::cout << "p_grad = " << p_grad;
+  // std::cout << "p_grad = " << p_grad;
   return std::vector<torch::Tensor>({px_grad, py_grad});
 }
