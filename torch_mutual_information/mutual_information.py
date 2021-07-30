@@ -106,7 +106,7 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
 
         ans = _mutual_information_forward_dispatcher(px, py, boundary, p)
 
-        print(f"p = {p}, boundary = {boundary}")
+        # print(f"p = {p}, boundary = {boundary}, psum={p.sum()}")
 
         if px.requires_grad or py.requires_grad:
             ctx.save_for_backward(px, py, boundary, p)

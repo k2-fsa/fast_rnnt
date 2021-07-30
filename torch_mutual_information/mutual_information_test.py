@@ -13,11 +13,11 @@ def test_mutual_information_basic():
         (B, S, T) = (random.randint(1, 10),
                      random.randint(1, 200),
                      random.randint(1, 200))
-        random_px = (random.random() < 0.1)
-        random_py = (random.random() < 0.1)
-        random_boundary = (random.random() < 0.1)
-        big_px = (random.random() < 0.1)
-        big_py = (random.random() < 0.1)
+        random_px = (random.random() < 0.2)
+        random_py = (random.random() < 0.2)
+        random_boundary = (random.random() < 0.2)
+        big_px = (random.random() < 0.2)
+        big_py = (random.random() < 0.2)
 
         print(f"B, S, T = {B}, {S}, {T}, random_px={random_px}, random_py={random_py}, big_px={big_px}, big_py={big_py}, random_boundary={random_boundary}")
         for dtype in [torch.float32, torch.float64]:
@@ -81,13 +81,13 @@ def test_mutual_information_basic():
                 px_grads.append(px.grad.to('cpu'))
                 py_grads.append(py.grad.to('cpu'))
                 m_vals.append(m.to('cpu'))
-            if not torch.allclose(m_vals[0], m_vals[1], atol=1.0e-05, rtol=1.0e-04):
+            if not torch.allclose(m_vals[0], m_vals[1], atol=1.0e-02, rtol=1.0e-02):
                 print(f"m_vals differed CPU vs CUDA: {m_vals[0]} vs. {m_vals[1]}")
                 assert 0
-            if not torch.allclose(px_grads[0], px_grads[1], atol=1.0e-05, rtol=1.0e-04):
+            if not torch.allclose(px_grads[0], px_grads[1], atol=1.0e-02, rtol=1.0e-02):
                 print(f"px_grads differed CPU vs CUDA: {px_grads[0]} vs. {px_grads[1]}")
                 assert 0
-            if not torch.allclose(py_grads[0], py_grads[1], atol=1.0e-05, rtol=1.0e-03):
+            if not torch.allclose(py_grads[0], py_grads[1], atol=1.0e-02, rtol=1.0e-02):
                 print(f"py_grads differed CPU vs CUDA: {py_grads[0]} vs. {py_grads[1]}")
                 assert 0
 

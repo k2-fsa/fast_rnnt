@@ -172,7 +172,7 @@ void mutual_information_kernel(
     // block < num_blocks_this_iter, so iter - block >= 0.
     int s_block_begin = block * BLOCK_SIZE,
         t_block_begin = (iter - block) * BLOCK_SIZE;
-    bool is_origin_block = (s_block_begin * t_block_begin == 0);
+    bool is_origin_block = (s_block_begin + t_block_begin == 0);
 
     __syncthreads();
 
@@ -403,30 +403,29 @@ void mutual_information_kernel(
 
     if (p_buf[0][0] != 0.0) {
       if (threadIdx.x == 0)
-        printf("Panic flag set, value = %f\n", (float)p_buf[0][0]); // TEMP
+        printf("Panic flag set, value = %f\n", (float)p_buf[0][0]); // TEMP?
       // The "panic" flag is set.  We need to re-do the computation using log-add.
       // This time we won't use the buffers, we'll just load and save from main
       // memory.  This code should very rarely be reached; and anyway, caching
       // should help us quite a bit.
       int s_in_block = threadIdx.x;
-      if (s_in_block < block_S) {
-        for (int i = 0; i < block_S + block_T - 1; ++i) {
-          __syncwarp();
-          int t_in_block = i - s_in_block;
-          if (static_cast<unsigned int>(t_in_block) <
-              static_cast<unsigned int>(block_T)) {
-            int s = s_in_block + s_block_begin,
-                t = t_in_block + t_block_begin;
-            float p_s1 = (s == s_begin  ? -INFINITY : p[b][s - 1][t]),
-                this_px = (s == s_begin ? -INFINITY : px[b][s - 1][t]),
-                p_t1 = (t == t_begin ? -INFINITY : p[b][s][t - 1]),
-                this_py = (t == t_begin ? -INFINITY : py[b][s][t - 1]);
-            float this_p = LogAdd(p_s1 + this_px,
-                                  p_t1 + this_py);
-            if (i == 0 && is_origin_block)
-              this_p = 0.0;
-            p[b][s][t] = this_p;
-          }
+      for (int i = 0; i < block_S + block_T - 1; ++i) {
+        __syncwarp();
+        int t_in_block = i - s_in_block;
+        if (static_cast<unsigned int>(t_in_block) <
+            static_cast<unsigned int>(block_T) &&
+            s_in_block < block_S) {
+          int s = s_in_block + s_block_begin,
+              t = t_in_block + t_block_begin;
+          float p_s1 = (s == s_begin  ? -INFINITY : p[b][s - 1][t]),
+              this_px = (s == s_begin ? -INFINITY : px[b][s - 1][t]),
+              p_t1 = (t == t_begin ? -INFINITY : p[b][s][t - 1]),
+              this_py = (t == t_begin ? -INFINITY : py[b][s][t - 1]);
+          float this_p = LogAdd(p_s1 + this_px,
+                                p_t1 + this_py);
+          if (i == 0 && is_origin_block)
+            this_p = 0.0;
+          p[b][s][t] = this_p;
         }
       }
       __syncwarp();
@@ -649,14 +648,13 @@ void mutual_information_backward_kernel(
     }
     __syncthreads();
 
-    // load p.  We could use BLOCK_SIZE + 1 here, but we use + 8 to hopefully keep
-    // reads more aligned.
+    // load p.
     for (int i = threadIdx.x; i < (BLOCK_SIZE + 1) * (BLOCK_SIZE + 1); i += blockDim.x) {
       int s_in_block = i / (BLOCK_SIZE + 1),
           t_in_block = i % (BLOCK_SIZE + 1),
                    s = s_in_block + s_block_begin,
                    t = t_in_block + t_block_begin;
-      // Setting 0.0 for out-of-bounds elements, together with setting
+      // Setting 0.0 for out-of-bounds elements of p, together with setting
       // -INFINITY for out-of-bounds elements of px_buf and py_buf, will
       // ensure that we do the right thing in top and right edge cases,
       // i.e. that no derivatives will be propagated from out-of-bounds points
@@ -742,7 +740,8 @@ void mutual_information_backward_kernel(
       for (int i = first_iter; i >= 0; --i) {
         __syncwarp();
         int t = i - s;
-        if (t >= 0 && s < block_S) {
+        if (s < block_S &&
+            static_cast<unsigned int>(t) < static_cast<unsigned int>(block_T)) {
           // The following statement is really operating on the gradients;
           // it corresponds, with offsets of s_block_begin and t_block_begin
           // on the indexes, to (eq. 6) defined above, i.e.:
