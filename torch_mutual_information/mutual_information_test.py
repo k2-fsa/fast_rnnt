@@ -15,7 +15,7 @@ def test_mutual_information_basic():
                      random.randint(1, 200))
         random_px = (random.random() < 0.2)
         random_py = (random.random() < 0.2)
-        random_boundary = (random.random() < 0.2)
+        random_boundary = (random.random() < 0.7)
         big_px = (random.random() < 0.2)
         big_py = (random.random() < 0.2)
 
@@ -32,8 +32,8 @@ def test_mutual_information_basic():
                     def get_boundary_row():
                         s_begin = random.randint(0, S - 1)
                         t_begin = random.randint(0, T - 1)
-                        s_end = random.randint(s_begin + 1, S)
-                        t_end = random.randint(t_begin + 1, T)
+                        s_end = random.randint(s_begin, S)  # allow empty sequence
+                        t_end = random.randint(t_begin, T)  # allow empty sequence
                         return [s_begin, t_begin, s_end, t_end]
                     if device == torch.device('cpu'):
                         boundary = torch.tensor([ get_boundary_row() for _ in range(B) ],
@@ -73,7 +73,7 @@ def test_mutual_information_basic():
                 #m = mutual_information_recursion(px, py, None)
                 m = mutual_information_recursion(px, py, boundary)
 
-                #print("m = ", m, ", size = ", m.shape)
+                print("m = ", m, ", size = ", m.shape)
                 #print("exp(m) = ", m.exp())
                 (m.sum() * 3).backward()
                 #print("px_grad = ", px.grad)
@@ -101,7 +101,7 @@ def test_mutual_information_deriv():
                      random.randint(1, 200))
         random_px = (random.random() < 0.2)
         random_py = (random.random() < 0.2)
-        random_boundary = (random.random() < 0.2)
+        random_boundary = (random.random() < 0.7)
         big_px = (random.random() < 0.2)
         big_py = (random.random() < 0.2)
 

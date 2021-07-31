@@ -161,7 +161,8 @@ def mutual_information_recursion(px, py, boundary=None):
                has stride of 1; this is true if px and py are contiguous.
 
           boundary:  If supplied, a torch.LongTensor of shape [B][4], where each row contains
-               [s_begin, t_begin, s_end, t_end].  If not supplied, the values
+               [s_begin, t_begin, s_end, t_end], with 0 <= s_begin <= s_end < S and
+               0 <= t_begin <= t_end < T (this implies that empty sequences are allowed).  If not supplied, the values
                [0, 0, S, T] will be assumed.  These are the beginning and
                one-past-the-last positions in the x and y sequences
                respectively, and can be used if not all sequences are of the same length.
