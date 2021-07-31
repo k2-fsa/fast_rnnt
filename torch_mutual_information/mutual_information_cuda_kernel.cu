@@ -376,7 +376,7 @@ void mutual_information_kernel(
           s = s_in_block + s_block_begin,
           t = t_in_block + t_block_begin;
       if (s_in_block < block_S && t_in_block < block_T) {
-        float this_p = p_buf[s_in_block + 1][t_in_block + 1];
+        scalar_t this_p = p_buf[s_in_block + 1][t_in_block + 1];
         p[b][s][t] = normalizer + log(this_p);
         // If this_p is infinity or NaN..
         if (this_p - this_p != 0) {
@@ -402,8 +402,12 @@ void mutual_information_kernel(
     }
 
     if (p_buf[0][0] != 0.0) {
+      /*
+      // FOR DEBUGGING PANIC MODE:
       if (threadIdx.x == 0)
-        printf("Panic flag set, value = %f\n", (float)p_buf[0][0]); // TEMP?
+        printf("Panic flag set, value = %f\n", (float)p_buf[0][0]);
+      */
+
       // The "panic" flag is set.  We need to re-do the computation using log-add.
       // This time we won't use the buffers, we'll just load and save from main
       // memory.  This code should very rarely be reached; and anyway, caching
@@ -417,11 +421,11 @@ void mutual_information_kernel(
             s_in_block < block_S) {
           int s = s_in_block + s_block_begin,
               t = t_in_block + t_block_begin;
-          float p_s1 = (s == s_begin  ? -INFINITY : p[b][s - 1][t]),
+          scalar_t p_s1 = (s == s_begin  ? -INFINITY : p[b][s - 1][t]),
               this_px = (s == s_begin ? -INFINITY : px[b][s - 1][t]),
               p_t1 = (t == t_begin ? -INFINITY : p[b][s][t - 1]),
               this_py = (t == t_begin ? -INFINITY : py[b][s][t - 1]);
-          float this_p = LogAdd(p_s1 + this_px,
+          scalar_t this_p = LogAdd(p_s1 + this_px,
                                 p_t1 + this_py);
           if (i == 0 && is_origin_block)
             this_p = 0.0;
