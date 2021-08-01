@@ -192,6 +192,11 @@ def mutual_information_recursion(px, py, boundary=None):
     if boundary is not None:
         assert boundary.dtype == torch.int64
         assert boundary.shape == (B, 4)
-
+        for [ s_begin, t_begin, s_end, t_end ] in boundary.to('cpu').tolist():
+            assert 0 <= s_begin <= s_end <= S
+            assert 0 <= t_begin <= t_end <= T
+    # The following assertions are for efficiency
+    assert px.stride()[-1] == 1
+    assert py.stride()[-1] == 1
 
     return MutualInformationRecursionFunction.apply(px, py, boundary)
