@@ -3,7 +3,7 @@
 
 import random
 import torch
-from torch_mutual_information import mutual_information_recursion
+from torch_mutual_information import mutual_information_recursion, joint_mutual_information_recursion
 
 
 def test_mutual_information_basic():
@@ -73,9 +73,36 @@ def test_mutual_information_basic():
                 #m = mutual_information_recursion(px, py, None)
                 m = mutual_information_recursion(px, py, boundary)
 
+                m2 = joint_mutual_information_recursion((px,), (py,), boundary)
+
+                m3 = joint_mutual_information_recursion((px * 0.5, px * 0.5), (py * 0.5, py * 0.5), boundary)
+                print("m3, before sum, = ", m3)
+                m3 = m3.sum(dim=0)  # it is supposed to be identical only after
+                                    # summing over dim 0, corresponding to the
+                                    # sequence dim
+
                 print("m = ", m, ", size = ", m.shape)
+                print("m2 = ", m2, ", size = ", m2.shape)
+                print("m3 = ", m3, ", size = ", m3.shape)
+
+                assert torch.allclose(m, m2)
+                assert torch.allclose(m, m3)
+
                 #print("exp(m) = ", m.exp())
-                (m.sum() * 3).backward()
+
+                # the loop this is in checks that the CPU and CUDA versions give the same
+                # derivative; by randomizing which of m, m2 or m3 we backprop, we also
+                # ensure that the joint version of the code gives the same derivative
+                # as the regular version
+                scale = 3
+                if random.random() < 0.5:
+                    (m.sum() * scale).backward()
+                elif random.random() < 0.5:
+                    (m2.sum() * scale).backward()
+                else:
+                    (m3.sum() * scale).backward()
+
+
                 #print("px_grad = ", px.grad)
                 #print("py_grad = ", py.grad)
                 px_grads.append(px.grad.to('cpu'))
@@ -90,6 +117,9 @@ def test_mutual_information_basic():
             if not torch.allclose(py_grads[0], py_grads[1], atol=1.0e-02, rtol=1.0e-02):
                 print(f"py_grads differed CPU vs CUDA: {py_grads[0]} vs. {py_grads[1]}")
                 assert 0
+
+
+
 
 
 def test_mutual_information_deriv():

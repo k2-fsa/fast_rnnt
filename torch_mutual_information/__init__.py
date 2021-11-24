@@ -1,1 +1,1 @@
-from .mutual_information import mutual_information_recursion
+from .mutual_information import mutual_information_recursion, joint_mutual_information_recursion
