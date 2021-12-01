@@ -40,7 +40,14 @@ def test_rnnt_logprobs_basic():
 
     m2 = rnnt_loss_simple(lm, am, symbols, termination_symbol, None)
     print("m2 = ", m2)
+
+    device = torch.device('cuda')
+    m3 = rnnt_loss_simple(lm.to(device), am.to(device), symbols.to(device), termination_symbol, None)
+    print("m3 = ", m2)
+
     assert torch.allclose(m, m2)
+
+    assert torch.allclose(m, m3.to('cpu'))
 
 
 
