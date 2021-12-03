@@ -168,10 +168,6 @@ def get_rnnt_logprobs_aux(lm: Tensor,
               vocabulary, including the termination/next-frame symbol.  It reflects
               the "acoustic" part of the probability of any given symbol appearing
               next on this frame.
-          am_only: same shape as am, [B][T][C], but differently normalized or differently
-             projected,
-             so that it can be interpreted as probabilities without taking the LM into
-             account.  Does not have to already include the logsoftmax(); we will do that.
           symbols: A LongTensor of shape [B][S], containing the symbols at each position
               of the sequence, possibly including EOS
           termination_symbol: The identity of the termination symbol, must be
