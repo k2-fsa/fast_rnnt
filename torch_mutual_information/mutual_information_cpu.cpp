@@ -136,7 +136,7 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
   TORCH_CHECK(py.dim() == 3, "py must be 3-dimensional.");
     TORCH_CHECK(p.dim() == 3, "p must be 3-dimensional.");
   TORCH_CHECK(boundary.dim() == 2, "boundary must be 2-dimensional.");
-  TORCH_CHECK(ans_grad.dim() == 1, "ans_grad must be 3-dimensional.");
+  TORCH_CHECK(ans_grad.dim() == 1, "ans_grad must be 1-dimensional.");
 
   TORCH_CHECK(px.device().is_cpu() && py.device().is_cpu() && p.device().is_cpu()
               && ans_grad.device().is_cpu(),

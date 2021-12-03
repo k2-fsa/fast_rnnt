@@ -79,7 +79,7 @@ def _mutual_information_backward_dispatcher(px: torch.Tensor, py: torch.Tensor,
 
 class MutualInformationRecursionFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, px: torch.Tensor, py: torch.Tensor, boundary: Optional[torch.Tensor]) -> torch.Tensor:
+    def forward(ctx, px: torch.Tensor, py: torch.Tensor, boundary: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         (B, S, T1) = px.shape
         T = T1 - 1;
         assert py.shape == (B, S + 1, T)
@@ -87,7 +87,6 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
             assert boundary.shape == (B, 4)
         else:
             boundary = torch.zeros(0, 0, dtype=torch.int64, device=px.device)
-
 
         # p is a tensor of shape (B, S + 1, T + 1) were p[s][t] is the
         # the mutual information of the pair of subsequences of x and y that are of
@@ -108,14 +107,22 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
 
         # print(f"p = {p}, boundary = {boundary}, psum={p.sum()}")
 
+        ans_grad = torch.ones(B, device=px.device, dtype=px.dtype)
+        (px_grad, py_grad) = _mutual_information_backward_dispatcher(px, py, boundary, p, ans_grad)
+
         if px.requires_grad or py.requires_grad:
-            ctx.save_for_backward(px, py, boundary, p)
-        return ans
+            ctx.save_for_backward(px_grad, py_grad)
+        return ans, px_grad, py_grad
+
 
     @staticmethod
-    def backward(ctx, ans_grad: Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
-        (px, py, boundary, p) = ctx.saved_tensors
-        (px_grad, py_grad) = _mutual_information_backward_dispatcher(px, py, boundary, p, ans_grad)
+    def backward(ctx, ans_grad: Tensor, dummy_px_grad: Tensor, dummy_py_grad: Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, None]:
+        (px_grad, py_grad) = ctx.saved_tensors
+        B, = ans_grad.shape
+        ans_grad = ans_grad.reshape((B, 1, 1))  # (B, 1, 1)
+        px_grad *= ans_grad
+        py_grad *= ans_grad
         return (px_grad, py_grad, None)
 
 
@@ -198,7 +205,8 @@ def mutual_information_recursion(px, py, boundary=None):
     # The following assertions are for efficiency
     assert px.stride()[-1] == 1
     assert py.stride()[-1] == 1
-    return MutualInformationRecursionFunction.apply(px, py, boundary)
+    m, px_grad, py_grad =  MutualInformationRecursionFunction.apply(px, py, boundary)
+    return m, (px_grad, py_grad)
 
 
 def _inner(a: Tensor, b: Tensor) -> Tensor:

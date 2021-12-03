@@ -71,7 +71,7 @@ def test_mutual_information_basic():
                 py.requires_grad = True
 
                 #m = mutual_information_recursion(px, py, None)
-                m = mutual_information_recursion(px, py, boundary)
+                m, grad = mutual_information_recursion(px, py, boundary)
 
                 m2 = joint_mutual_information_recursion((px,), (py,), boundary)
 
@@ -185,7 +185,7 @@ def test_mutual_information_deriv():
                 px.requires_grad = True
                 py.requires_grad = True
 
-                m = mutual_information_recursion(px, py, boundary)
+                m, grad = mutual_information_recursion(px, py, boundary)
 
                 #print("m = ", m)
                 #print("exp(m) = ", m.exp())
@@ -200,7 +200,7 @@ def test_mutual_information_deriv():
                 m.backward(gradient=m_grad)
                 delta = 1.0e-04
                 delta_px = delta * torch.randn_like(px)
-                m2 = mutual_information_recursion(px + delta_px, py, boundary)
+                m2, grad = mutual_information_recursion(px + delta_px, py, boundary)
                 delta_m = m2 - m
                 observed_delta = (delta_m * m_grad).sum().to('cpu')
                 predicted_delta = (delta_px * px.grad).sum().to('cpu')
@@ -214,7 +214,7 @@ def test_mutual_information_deriv():
                     assert 0
 
                 delta_py = delta * torch.randn_like(py)
-                m2 = mutual_information_recursion(px, py + delta_py, boundary)
+                m2, grad = mutual_information_recursion(px, py + delta_py, boundary)
                 delta_m = m2 - m
                 observed_delta = (delta_m * m_grad).sum().to('cpu')
                 predicted_delta = (delta_py * py.grad).sum().to('cpu')
@@ -229,9 +229,6 @@ def test_mutual_information_deriv():
             # if not torch.allclose(py_grads[0], py_grads[1], atol=1.0e-02, rtol=1.0e-02):
             #     print(f"py_grads differed CPU vs CUDA: {py_grads[0]} vs. {py_grads[1]}")
             #     assert 0
-
-
-
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 
 import random
 import torch
-from torch_mutual_information import mutual_information_recursion, joint_mutual_information_recursion, get_rnnt_logprobs, rnnt_loss_simple
+from torch_mutual_information import mutual_information_recursion, joint_mutual_information_recursion, get_rnnt_logprobs, rnnt_loss_simple, rnnt_loss
 
 
 def test_rnnt_logprobs_basic():
@@ -30,25 +30,30 @@ def test_rnnt_logprobs_basic():
     assert symbols.shape == (B, S)
     print("px = ", px)
     print("py = ", py)
-    m = mutual_information_recursion(px, py)
+    m, grad = mutual_information_recursion(px, py)
     print("m = ", m)
 
+    t_am = am.unsqueeze(2)
+    t_lm = lm.unsqueeze(1)
+    t_prob = t_am + t_lm
+    m1, grad = rnnt_loss(t_prob, symbols, termination_symbol, None)
+    print ("m1 = ", m1)
+    assert torch.allclose(m, m1)
 
     # should be invariant to adding a constant for any frame.
     lm += torch.randn(B, S+1, 1)
     am += torch.randn(B, T, 1)
 
-    m2 = rnnt_loss_simple(lm, am, symbols, termination_symbol, None)
+    m2, grad = rnnt_loss_simple(lm, am, symbols, termination_symbol, None)
     print("m2 = ", m2)
-
-    device = torch.device('cuda')
-    m3 = rnnt_loss_simple(lm.to(device), am.to(device), symbols.to(device), termination_symbol, None)
-    print("m3 = ", m2)
-
     assert torch.allclose(m, m2)
 
-    assert torch.allclose(m, m3.to('cpu'))
-
+    t_am = am.unsqueeze(2)
+    t_lm = lm.unsqueeze(1)
+    t_prob = t_am + t_lm
+    m3, grad = rnnt_loss(t_prob, symbols, termination_symbol, None)
+    print ("m3 = ", m3)
+    assert torch.allclose(m, m3)
 
 
 if __name__ == "__main__":
