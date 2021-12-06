@@ -214,22 +214,51 @@ def rnnt_loss(joint: Tensor,
     return mutual_information_recursion(px, py, boundary)
 
 
-def monotonic_lower_bound(src, s_range, max_symbol):
-    dest = torch.zeros_like(src)
-    for i in range(src.shape[0]):
-        min_value = max_symbol + 1
-        dest[i][src.shape[1] - 1] = max_symbol - s_range
-        for j in range(src.shape[1] - 2, -1, -1):
-            min_value = max(min(src[i][j], min_value), dest[i][j+1] - s_range + 1)
-            dest[i][j] = min_value
-        dest[i][0] = 0
-        for j in range(1, dest.shape[1]):
-            dest[i][j] = min(dest[i][j-1] + s_range - 1, dest[i][j])
-        assert dest[i][src.shape[1] - 1] == max_symbol - s_range 
-    return dest
+def adjust_pruning_lower_bound(s_begin: torch.Tensor, s_range: int) -> torch.Tensor:
+    """
+    Adjust s_begin (pruning lower bound) to make it satisfied the following constrains
+
+      - monotonic increasing, i.e. s_begin[i] <= s_begin[i + 1]
+      - start with symbol 0 at first frame.
+      - s_begin[i + 1] - s_begin[i] < s_range, whicn means that we can't skip any symbols.
+
+    To make it monotonic increasing, we can `monotonic_lower_bound` function in k2, which
+    guarantee `s_begin[i] <= s_begin[i + 1]`. The main idea is: traverse the array in reverse
+    order and update the elements by `min_value = min(a_begin[i], current_min_value)`,
+    the initial `min_value` set to `inf`.
+
+    The method we used to realize `s_begin[i + 1] - s_begin[i] < s_range` constrain is a little
+    tricky. We first transform `s_begin` with `s_begin = -(s_begin - (s_range - 1) * torch.arange(0,T))`
+    then we make the transformed `s_begin` monotonic increasing, after that, we transform back
+    `s_begin` with the same formula as the previous transformation. The idea is: if we want to make
+    `s_begin[i + 1] - s_begin[i] < s_range` we only need to make `-(s_begin[i] - i * (s_range - 1))` a
+    non-decreasing array. Proof:
+
+      -(s_begin[i] - i * (s_range - 1)) <= -(s_begin[i + 1] - (i + 1) * (s_range - 1))
+                            -s_begin[i] <= -s_begin[i + 1] + (i + 1) * (s_range - 1) - i * (s_range - 1)
+                            -s_begin[i] <= -s_begin[i + 1] + s_range - 1
+            s_begin[i + 1] - s_begin[i] <= s_range - 1
+            s_begin[i + 1] - s_begin[i] < s_range
+
+    The above transformation can not guarantee the start symbol to be 0, so we have to make all the
+    elements that less than 0 to 0 before transforming back the `s_begin`.
+    """
+    # s_begin (B, T)
+    (B, T) = s_begin.shape
+    # TODO: Implements torch.int64 version of k2.monotonic_lower_bound
+    s_begin = k2.monotonic_lower_bound(s_begin.to(torch.int32))
+    # do the magic transformation
+    s_begin = -(s_begin - (s_range - 1) * torch.arange(0, T))
+    # make the transformed tensor to be non-decreasing
+    s_begin = k2.monotonic_lower_bound(s_begin.to(torch.int32))
+    # make start symbol to be zero.
+    s_begin = torch.where(s_begin < 0, 0, s_begin.to(torch.int64))
+    # do the magic transformation again to recover s_begin
+    s_begin = -(s_begin - (s_range - 1) * torch.arange(0, T))
+    return s_begin
 
 
-def get_pruning_ranges(px_grad: torch.Tensor, py_grad: torch.Tensor, s_range: int):
+def get_pruning_ranges(px_grad: torch.Tensor, py_grad: torch.Tensor, s_range: int) -> torch.Tensor:
     """
     Get the pruning ranges for normal rnnt loss according to the grad of rnnt_loss_simple.
 
@@ -249,12 +278,12 @@ def get_pruning_ranges(px_grad: torch.Tensor, py_grad: torch.Tensor, s_range: in
     px_pad = torch.zeros((B, 1, T + 1), dtype=px_grad.dtype, device=px_grad.device)
     py_pad = torch.zeros((B, S + 1, 1), dtype=py_grad.dtype, device=py_grad.device)
     tot_grad = torch.cat((px_grad, px_pad), dim=1) + torch.cat((py_grad, py_pad), dim=2) # (B, S + 1, T + 1)
+    tot_grad = torch.cat((torch.zeros((B, 1, T+1), dtype=tot_grad.dtype, device=tot_grad.device), tot_grad), dim=1)
+    tot_grad = torch.cumsum(tot_grad, dim=1)[:,:S+1,:]
     diff_grad = tot_grad[:,s_range:,:] - tot_grad[:, 0:-s_range,:]
     s_begin = torch.argmax(diff_grad, dim=1)
-    s_begin = s_begin[:,:T].to(torch.int32)
-    # k2.monotonic_lower_bound(s_begin, inplace=True)
-    s_begin = monotonic_lower_bound(s_begin, s_range, S+1)
-    # print ("s_begin: ", s_begin)
+    s_begin = s_begin[:,:T]
+    s_begin = adjust_pruning_lower_bound(s_begin, s_range)
     ranges = s_begin.reshape((B, T, 1)).expand((B, T, s_range)) + torch.arange(s_range)
     return ranges
 

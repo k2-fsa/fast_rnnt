@@ -27,7 +27,7 @@ def test_rnnt_pruning():
     
     # pruning
     k2_simple_loss, (px_grad, py_grad) = rnnt_loss_simple(lm, am, symbols, terminal_symbol, None)
-    for r in range(2, 50, 2):
+    for r in range(2, 52, 2):
         ranges = get_pruning_ranges(px_grad, py_grad, r)
         # (B, T, r, C)
         am_p, lm_p = pruning(am, lm, ranges)
@@ -36,8 +36,11 @@ def test_rnnt_pruning():
 
         # nonlinear transform
         t_prob_p = sigmoid(t_prob_p)
+        boundary = torch.zeros((B, 4), dtype=torch.int64)
+        boundary[:,2] = ranges[:,-1,-1]
+        boundary[:,3] = T
 
-        pruning_loss, grads = pruning_rnnt_loss(t_prob_p, symbols, ranges, terminal_symbol, None)
+        pruning_loss, grads = pruning_rnnt_loss(t_prob_p, symbols, ranges, terminal_symbol, boundary)
         print (f"pruning loss with range {r} : ", pruning_loss)
 
 
