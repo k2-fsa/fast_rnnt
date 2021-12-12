@@ -6,7 +6,7 @@ from typing import Tuple, Optional, Sequence
 from torch.utils.cpp_extension import load
 
 VERBOSE = False
-
+# DEBUG = False
 
 def _resolve(name):
     return os.path.join(os.path.dirname(os.path.realpath(__file__)), name)
@@ -105,6 +105,9 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
         p = torch.empty(B, S + 1, T + 1, device=px.device, dtype=px.dtype)
 
         ans = _mutual_information_forward_dispatcher(px, py, boundary, p)
+
+        #if DEBUG:
+        #    print("p = ", p)
 
         # print(f"p = {p}, boundary = {boundary}, psum={p.sum()}")
 
@@ -295,6 +298,8 @@ def joint_mutual_information_recursion(px: Sequence[Tensor], py: Sequence[Tensor
 
     px_grad, py_grad = px_grad.reshape(1, B, -1), py_grad.reshape(1, B, -1)
     px_cat, py_cat = px_cat.reshape(N, B, -1), py_cat.reshape(N, B, -1)
+    # get rid of -inf, would generate nan on product with 0
+    px_cat, py_cat = px_cat.clamp(min=-1.0e+38), py_cat.clamp(min=-1.0e+38)
 
     x_prods = _inner(px_grad, px_cat) # (N, B)
     y_prods = _inner(py_grad, py_cat) # (N, B)

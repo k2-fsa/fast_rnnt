@@ -3,6 +3,7 @@
 
 import random
 import torch
+import torch_mutual_information
 from torch_mutual_information import mutual_information_recursion, joint_mutual_information_recursion
 
 
@@ -11,8 +12,8 @@ def test_mutual_information_basic():
 
     for _iter in range(100):
         (B, S, T) = (random.randint(1, 10),
-                     random.randint(1, 200),
-                     random.randint(1, 200))
+                     random.randint(1, 16),
+                     random.randint(1, 500))
         random_px = (random.random() < 0.2)
         random_py = (random.random() < 0.2)
         random_boundary = (random.random() < 0.7)
@@ -50,6 +51,8 @@ def test_mutual_information_basic():
                 if device == torch.device('cpu'):
                     if random_px:
                         px = torch.randn(B, S, T + 1, dtype=dtype).to(device)  # log of an odds ratio
+                        if S > 1 and not random_boundary:
+                            px[:,:,-1:] = float('-inf')
                     else:
                         px = torch.zeros(B, S, T + 1, dtype=dtype).to(device)  # log of an odds ratio
                     # px and py get exponentiated, and then multiplied together up to
@@ -85,8 +88,15 @@ def test_mutual_information_basic():
                 print("m2 = ", m2, ", size = ", m2.shape)
                 print("m3 = ", m3, ", size = ", m3.shape)
 
+                # try:
                 assert torch.allclose(m, m2)
                 assert torch.allclose(m, m3)
+                #except Exception as e:
+                #   torch_mutual_information.mutual_information.DEBUG = True
+                #   m = mutual_information_recursion(px, py, boundary)   # will print debug
+                #   print("px = ", px)
+                #   print("py = ", py)
+                #   raise(e)
 
                 #print("exp(m) = ", m.exp())
 

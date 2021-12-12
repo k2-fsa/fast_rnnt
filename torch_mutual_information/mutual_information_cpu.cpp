@@ -203,9 +203,15 @@ std::vector<torch::Tensor> mutual_information_backward_cpu(
                   total = p_a[b][s][t],
                   term1_deriv = exp(term1 - total),
                   term2_deriv = 1.0 - term1_deriv,
-                  grad = p_grad_a[b][s][t],
-                  term1_grad = term1_deriv * grad,
-                  term2_grad = term2_deriv * grad;
+                  grad = p_grad_a[b][s][t];
+              scalar_t term1_grad, term2_grad;
+              if (term1_deriv - term1_deriv == 0.0) {
+                term1_grad = term1_deriv * grad;
+                term2_grad = term2_deriv * grad;
+              } else {
+                // could happen if total == -inf
+                term1_grad = term2_grad = 0.0;
+              }
               px_grad_a[b][s - 1][t] = term1_grad;
               p_grad_a[b][s - 1][t] = term1_grad;
               py_grad_a[b][s][t - 1] = term2_grad;

@@ -140,10 +140,10 @@ void mutual_information_kernel(
   __shared__ scalar_t px_buf[BLOCK_SIZE][BLOCK_SIZE],
       py_buf[BLOCK_SIZE][BLOCK_SIZE];
 
-  // p_buf[s][t] == exp(p[s+s_block_begin-1][t+t_block_begin-1] - normalizer).
+  // p_buf[s][t] == p[s+s_block_begin-1][t+t_block_begin-1]
   // 1st row/col of p_buf correspond to the previously computed blocks (lower
   // `iter`), or to negative indexes into p.  So, for the origin block,
-  // p_buf[s][t] corresponds to exp(p[s - 1][t - 1] - normalizer); or 0 for
+  // p_buf[s][t] corresponds to p[s - 1][t - 1]; or -inf for
   // out-of-range values.
   __shared__ scalar_t p_buf[BLOCK_SIZE + 1][BLOCK_SIZE + 1];
 
@@ -212,21 +212,21 @@ void mutual_information_kernel(
       // Caution: if s_begin > 0 or t_begin > 0 we may end up loading some px and
       // py values that are outside the proper boundaries that we need, but
       // the corresponding p_buf values will end up being 0 so this won't matter.
-      scalar_t this_px = 0.0;
+      scalar_t this_px = -INFINITY;
       if (s > s_begin && s <= s_end && t <= t_end)
-        this_px = exp(px[b][s - 1][t]);
+        this_px = px[b][s - 1][t];
       px_buf[s_in_block][t_in_block] = this_px;
-      scalar_t this_py = 0.0;
+      scalar_t this_py = -INFINITY;
       if (t > t_begin && t <= t_end && s <= s_end)
-        this_py = exp(py[b][s][t - 1]);
+        this_py = py[b][s][t - 1];
       py_buf[s_in_block][t_in_block] = this_py;
     }
 
 
     // Load the 1st row and 1st column of p_buf (except element[0][0] is not
     // needed).  This is the context from previously computed blocks of the
-    // image.  Remember: p_buf[s][t] will correspond to exp(p[s + s_block_begin -
-    // 1][t + t_block_begin - 1] - normalizer.
+    // image.  Remember: p_buf[s][t] will correspond to p[s + s_block_begin -
+    // 1][t + t_block_begin - 1]
     if (threadIdx.x <= BLOCK_SIZE) {
       // s_in_p_buf are simply the indexes into p_buf
       int s_in_p_buf = threadIdx.x,
@@ -259,36 +259,7 @@ void mutual_information_kernel(
 
     __syncthreads();
 
-    // We read p_buf in log-space; we now subtract 'normalizer', which
-    // mathematically could be any finite number, to get it in a range close to
-    // zero, and then exponentiate.  We'll do everything in non-log space, for
-    // speed, and later take a log before we write out the data.
-    scalar_t normalizer = (is_origin_block ? 0.0 :
-                           max(p_buf[0][1], p_buf[1][0]));
 
-    __syncthreads();
-
-    // Normalize and exponentiate the edge elements of p_buf, i.e. the elements
-    // where at one index is 0.  The [0][0] element is special; we write 0.0,
-    // and we'll overwrite with 1.0 if there is a panic situation due to
-    // overflow.
-    if (threadIdx.x <= BLOCK_SIZE) {
-      // p_buf[0][0] is never used for its normal purpose; we set it to zero
-      // p_buf[0][0] = 0.0;  <-- for search purposes.
-      // We'll later write an infinity there if something goes wrong, as a
-      // 'panic' indicator.
-      int s = threadIdx.x;
-      p_buf[s][0] = (s == 0 ? 0.0 :
-                     exp(p_buf[s][0] - normalizer));
-    } else if (static_cast<unsigned int>(int(threadIdx.x) - 64) <
-               static_cast<unsigned int>(BLOCK_SIZE)) {
-      // if (threadidx.x - 64) >= 0 && (threadIdx.x - 64) < BLOCK_SIZE..
-      int t = (int)threadIdx.x - 64 + 1; // 0 < t <= BLOCK_SIZE
-      // this happens in a different warp so can be in parallel to the code above.
-      p_buf[0][t] = exp(p_buf[0][t] - normalizer);
-    }
-
-    __syncthreads();
     // from here to the next __syncthreads(), only the 1st warp should be active
     // so we shouldn't need to synchronize.  (implicit within-warp
     // synchronization).
@@ -299,9 +270,9 @@ void mutual_information_kernel(
       // to set p_buf to 1.0 = exp(0.0) if this is the "origin block",
       // i.e. s == s_begin, t == t_begin.  This corresponds to the
       // probability of the pair of sequences of length (0, 0).
-      p_buf[1][1] = (is_origin_block ? 1.0 :
-                     p_buf[0][1] * px_buf[0][0] +
-                     p_buf[1][0] * py_buf[0][0]);
+      p_buf[1][1] = (is_origin_block ? 0.0 :
+                     LogAdd(p_buf[0][1] + px_buf[0][0],
+                            p_buf[1][0] + py_buf[0][0]));
     }
 
     scalar_t p_buf_s1_t; // This is for an optimization to avoid one
@@ -333,8 +304,8 @@ void mutual_information_kernel(
           static_cast<unsigned int>(t) < static_cast<unsigned int>(block_T)) {
         // p_buf is indexed by s + 1 and t + 1 because it has an extra initial
         // row and column for context from previous blocks.  Taking into account
-        // the way these buffers relate to the tensors p, px and py, and
-        // ignoring `normalizer`, code below can be interpreted as follows,
+        // the way these buffers relate to the tensors p, px and py,
+        // can be interpreted as follows,
         // writing sbb for s_block_begin and tbb for t_block_begin:
         //
         //   p[b][s+sbb][t+tbb] = LogAdd(p[b][s+sbb-1][t+tbb] + px[s+sbb-1][t+tbb],
@@ -344,7 +315,8 @@ void mutual_information_kernel(
         // the same as the recursion defined for p in
         // mutual_information.py:mutual_information_recursion(); and (eq. 0) above.
 #if 1
-        p_buf[s + 1][t + 1] = p_buf[s][t + 1] * px_buf[s][t] + p_buf[s + 1][t] * py_buf[s][t];
+        p_buf[s + 1][t + 1] = LogAdd(p_buf[s][t + 1] + px_buf[s][t],
+                                     p_buf[s + 1][t] + py_buf[s][t]);
 
         /*printf("threadIdx.x = %d, i = %d, s = %d, t = %d, p_buf[s+1][t+1] = %f, p_buf[s][t+1] = %f, "
           "px_buf[s][t] = %f, p_buf[s + 1][t] = %f, py_buf[s][t] = %f\n",
@@ -354,7 +326,8 @@ void mutual_information_kernel(
         // This is an optimization of the statement above (the other half of
         // this #if/#else) where we keep p_buf[s + 1][t] in a register to avoid
         // the need for a load from shared memory.
-        p_buf_s1_t = p_buf[s][t + 1] * px_buf[s][t] + p_buf_s1_t * py_buf[s][t];
+        p_buf_s1_t = LogAdd(p_buf[s][t + 1] + px_buf[s][t],
+                            p_buf_s1_t + py_buf[s][t]);
         // The next time this thread reads p_buf_s1_t, t will be one greater,
         // so p_buf_s1_t will contain p_buf[s + 1][t].  The first time this
         // thread uses p_buf_s1_t is when t == 0, except for thread 0 where
@@ -377,12 +350,7 @@ void mutual_information_kernel(
           t = t_in_block + t_block_begin;
       if (s_in_block < block_S && t_in_block < block_T) {
         scalar_t this_p = p_buf[s_in_block + 1][t_in_block + 1];
-        p[b][s][t] = normalizer + log(this_p);
-        // If this_p is infinity or NaN..
-        if (this_p - this_p != 0) {
-          // printf("[panic] threadIdx.x = %d, this_p = %f\n", (int)threadIdx.x, (float)this_p);
-          p_buf[0][0] = 1.0;  // This is a "panic" flag.
-        }
+        p[b][s][t] = this_p;
       }
     }
 
@@ -397,48 +365,7 @@ void mutual_information_kernel(
         // you could read block_S below as block_S - 1 + 1, meaning,
         // it's the last index in a block of size block_S, but the indexes into
         // p_buf have a "+ 1".  Likewise for block_T.
-        ans[b] = normalizer + log(p_buf[block_S][block_T]);
-      }
-    }
-
-    if (p_buf[0][0] != 0.0) {
-      /*
-      // FOR DEBUGGING PANIC MODE:
-      if (threadIdx.x == 0)
-        printf("Panic flag set, value = %f\n", (float)p_buf[0][0]);
-      */
-
-      // The "panic" flag is set.  We need to re-do the computation using log-add.
-      // This time we won't use the buffers, we'll just load and save from main
-      // memory.  This code should very rarely be reached; and anyway, caching
-      // should help us quite a bit.
-      int s_in_block = threadIdx.x;
-      for (int i = 0; i < block_S + block_T - 1; ++i) {
-        __syncwarp();
-        int t_in_block = i - s_in_block;
-        if (static_cast<unsigned int>(t_in_block) <
-            static_cast<unsigned int>(block_T) &&
-            s_in_block < block_S) {
-          int s = s_in_block + s_block_begin,
-              t = t_in_block + t_block_begin;
-          scalar_t p_s1 = (s == s_begin  ? -INFINITY : p[b][s - 1][t]),
-              this_px = (s == s_begin ? -INFINITY : px[b][s - 1][t]),
-              p_t1 = (t == t_begin ? -INFINITY : p[b][s][t - 1]),
-              this_py = (t == t_begin ? -INFINITY : py[b][s][t - 1]);
-          scalar_t this_p = LogAdd(p_s1 + this_px,
-                                p_t1 + this_py);
-          if (i == 0 && is_origin_block)
-            this_p = 0.0;
-          p[b][s][t] = this_p;
-        }
-      }
-      __syncwarp();
-      if (threadIdx.x == 0) {
-        // Write `ans`, if this is the final (top-right) block in its sequence.
-        // This is only reached in the 'panic situation' where we had overflow.
-        if (s_block_begin + block_S - 1 == s_end &&
-            t_block_begin + block_T - 1 == t_end)
-          ans[b] = p[b][s_end][t_end];
+        ans[b] = p_buf[block_S][block_T];
       }
     }
   }
@@ -666,9 +593,12 @@ void mutual_information_backward_kernel(
       scalar_t this_p = 0.0;
       if (s <= s_end && t <= t_end)
         this_p = p[b][s][t];
+      // if this_p is -inf, replace with large finite negative value, to avoid NaN's below.
+      // TODO: use a value that would work correctly in half precision
+      if (this_p < -1.0e+30)
+        this_p = -1.0e+30;
       p_buf[s_in_block][t_in_block] = this_p;
     }
-
     __syncthreads();
 
     // Set xderiv and yderiv; see (eq. 4) and (eq. 5).
