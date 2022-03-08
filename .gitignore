@@ -2,3 +2,4 @@
 .idea
 venv*
 deploy*
+__pycache__/*
