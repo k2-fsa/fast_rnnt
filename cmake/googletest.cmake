@@ -18,7 +18,6 @@ function(download_googltest)
     # FetchContent is available since 3.11,
     # we've copied it to ${CMAKE_SOURCE_DIR}/cmake/Modules
     # so that it can be used in lower CMake versions.
-    message(STATUS "Use FetchContent provided by k2")
     list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
   endif()
 

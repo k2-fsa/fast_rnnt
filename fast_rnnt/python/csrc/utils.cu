@@ -25,20 +25,32 @@
 namespace fast_rnnt {
 
 void PybindUtils(py::module &m) {
-  m.def("monotonic_lower_bound_", [](torch::Tensor &src) -> void {
-    DeviceGuard guard(src.device());
-    if (src.dim() == 1) {
-      MonotonicLowerBound(src);
-    } else if (src.dim() == 2) {
-      int32_t dim0 = src.sizes()[0];
-      for (int32_t i = 0; i < dim0; ++i) {
-        auto sub = src.index({i, torch::indexing::Slice()});
-        MonotonicLowerBound(sub);
-      }
-    } else {
-      TORCH_CHECK(false, "Only support 1 dimension and 2 dimensions tensor");
-    }
-  }, py::arg("src"));
+  m.def(
+      "monotonic_lower_bound_",
+      [](torch::Tensor &src) -> void {
+        DeviceGuard guard(src.device());
+        if (src.dim() == 1) {
+          MonotonicLowerBound(src);
+        } else if (src.dim() == 2) {
+          int32_t dim0 = src.sizes()[0];
+          for (int32_t i = 0; i < dim0; ++i) {
+            auto sub = src.index({i});
+            MonotonicLowerBound(sub);
+          }
+        } else {
+          TORCH_CHECK(false,
+                      "Only support 1 dimension and 2 dimensions tensor");
+        }
+      },
+      py::arg("src"));
+
+  m.def("with_cuda", []() -> bool {
+#ifdef FT_WITH_CUDA
+    return true;
+#else
+    return false;
+#endif
+  });
 }
 
 } // namespace fast_rnnt
