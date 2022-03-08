@@ -2,4 +2,6 @@
 .idea
 venv*
 deploy*
-__pycache__/*
+**/__pycache__
+**/build*
+Testing*

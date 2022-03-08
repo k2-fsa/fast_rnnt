@@ -18,15 +18,27 @@
  * limitations under the License.
  */
 
-#ifndef FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
-#define FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
-
-#include "fast_rnnt/python/csrc/fast_rnnt.h"
+#include "fast_rnnt/csrc/device_guard.h"
+#include "fast_rnnt/csrc/utils.h"
+#include "fast_rnnt/python/csrc/utils.h"
 
 namespace fast_rnnt {
 
-void PybindMutualInformation(py::module &m);
+void PybindUtils(py::module &m) {
+  m.def("monotonic_lower_bound_", [](torch::Tensor &src) -> void {
+    DeviceGuard guard(src.device());
+    if (src.dim() == 1) {
+      MonotonicLowerBound(src);
+    } else if (src.dim() == 2) {
+      int32_t dim0 = src.sizes()[0];
+      for (int32_t i = 0; i < dim0; ++i) {
+        auto sub = src.index({i, torch::indexing::Slice()});
+        MonotonicLowerBound(sub);
+      }
+    } else {
+      TORCH_CHECK(false, "Only support 1 dimension and 2 dimensions tensor");
+    }
+  }, py::arg("src"));
+}
 
 } // namespace fast_rnnt
-
-#endif // FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_

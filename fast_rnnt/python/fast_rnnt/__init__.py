@@ -1,3 +1,5 @@
+from _fast_rnnt import monotonic_lower_bound_
+
 from .mutual_information import mutual_information_recursion
 from .mutual_information import joint_mutual_information_recursion
 

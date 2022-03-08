@@ -14,8 +14,13 @@ cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 set(languages CXX)
 set(_FT_WITH_CUDA ON)
 
-set(CMAKE_CXX_STANDARD 14)
+# the following settings are modified from cub/CMakeLists.txt
+set(CMAKE_CXX_STANDARD 14 CACHE STRING "The C++ version to be used.")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+message(STATUS "C++ Standard version: ${CMAKE_CXX_STANDARD}")
+
 
 find_program(FT_HAS_NVCC nvcc)
 if(NOT FT_HAS_NVCC AND "$ENV{CUDACXX}" STREQUAL "")
@@ -55,7 +60,7 @@ elseif(NOT CMAKE_BUILD_TYPE IN_LIST ALLOWABLE_BUILD_TYPES)
     choose one from ${ALLOWABLE_BUILD_TYPES}")
 endif()
 
-option(FT_BUILD_TESTS "Whether to build tests or not" OFF)
+option(FT_BUILD_TESTS "Whether to build tests or not" ON)
 option(BUILD_SHARED_LIBS "Whether to build shared libs" ON)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
@@ -128,6 +133,10 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 include(pybind11)
 include(torch)
+if(FT_WITH_CUDA AND CUDA_VERSION VERSION_LESS 11.0)
+  # CUB is included in CUDA toolkit 11.0 and above
+  include(cub)
+endif()
 
 if(FT_BUILD_TESTS)
   enable_testing()

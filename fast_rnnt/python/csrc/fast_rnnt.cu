@@ -18,15 +18,13 @@
  * limitations under the License.
  */
 
-#ifndef FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
-#define FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
-
 #include "fast_rnnt/python/csrc/fast_rnnt.h"
+#include "fast_rnnt/python/csrc/mutual_information.h"
+#include "fast_rnnt/python/csrc/utils.h"
 
-namespace fast_rnnt {
+PYBIND11_MODULE(_fast_rnnt, m) {
+  m.doc() = "Python wrapper for Fast Rnnt.";
 
-void PybindMutualInformation(py::module &m);
-
-} // namespace fast_rnnt
-
-#endif // FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
+  fast_rnnt::PybindMutualInformation(m);
+  fast_rnnt::PybindUtils(m);
+}

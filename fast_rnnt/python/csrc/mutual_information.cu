@@ -22,9 +22,8 @@
 #include "fast_rnnt/csrc/mutual_information.h"
 #include "fast_rnnt/python/csrc/mutual_information.h"
 
-PYBIND11_MODULE(_fast_rnnt, m) {
-  m.doc() = "Python wrapper for Mutual Information.";
-
+namespace fast_rnnt {
+void PybindMutualInformation(py::module &m) {
   m.def(
       "mutual_information_forward",
       [](torch::Tensor px, torch::Tensor py,
@@ -32,10 +31,10 @@ PYBIND11_MODULE(_fast_rnnt, m) {
          torch::Tensor p) -> torch::Tensor {
         fast_rnnt::DeviceGuard guard(px.device());
         if (px.device().is_cpu()) {
-          return fast_rnnt::MutualInformationCpu(px, py, boundary, p);
+          return MutualInformationCpu(px, py, boundary, p);
         } else {
 #ifdef FT_WITH_CUDA
-          return fast_rnnt::MutualInformationCuda(px, py, boundary, p);
+          return MutualInformationCuda(px, py, boundary, p);
 #else
           TORCH_CHECK(false, "Failed to find native CUDA module, make sure "
                              "that you compiled the code with K2_WITH_CUDA.");
@@ -52,12 +51,11 @@ PYBIND11_MODULE(_fast_rnnt, m) {
          torch::Tensor ans_grad) -> std::vector<torch::Tensor> {
         fast_rnnt::DeviceGuard guard(px.device());
         if (px.device().is_cpu()) {
-          return fast_rnnt::MutualInformationBackwardCpu(px, py, boundary, p,
-                                                         ans_grad);
+          return MutualInformationBackwardCpu(px, py, boundary, p, ans_grad);
         } else {
 #ifdef FT_WITH_CUDA
-          return fast_rnnt::MutualInformationBackwardCuda(px, py, boundary, p,
-                                                          ans_grad, true);
+          return MutualInformationBackwardCuda(px, py, boundary, p, ans_grad,
+                                               true);
 #else
           TORCH_CHECK(false, "Failed to find native CUDA module, make sure "
                              "that you compiled the code with K2_WITH_CUDA.");
@@ -68,3 +66,4 @@ PYBIND11_MODULE(_fast_rnnt, m) {
       py::arg("px"), py::arg("py"), py::arg("boundary"), py::arg("p"),
       py::arg("ans_grad"));
 }
+} // namespace fast_rnnt

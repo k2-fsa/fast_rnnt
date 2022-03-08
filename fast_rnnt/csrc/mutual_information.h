@@ -21,10 +21,9 @@
 #ifndef FAST_RNNT_CSRC_MUTUAL_INFORMATION_H_
 #define FAST_RNNT_CSRC_MUTUAL_INFORMATION_H_
 
-#include <torch/extension.h>
-
 #include <cmath>
 #include <vector>
+#include "torch/extension.h"
 
 #ifdef __CUDA_ARCH__
 #define FT_CUDA_HOSTDEV __host__ __device__

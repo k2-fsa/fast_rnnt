@@ -1,6 +1,8 @@
 /**
+ * @brief python wrappers for utils.h
+ *
  * @copyright
- * Copyright      2022  Xiaomi Corporation (authors: Wei Kang)
+ * Copyright      2022  Xiaomi Corp.       (author: Wei Kang)
  *
  * @copyright
  * See LICENSE for clarification regarding multiple authors
@@ -18,15 +20,13 @@
  * limitations under the License.
  */
 
-#ifndef FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
-#define FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
+#ifndef FAST_RNNT_PYTHON_CSRC_UTILS_H_
+#define FAST_RNNT_PYTHON_CSRC_UTILS_H_
 
 #include "fast_rnnt/python/csrc/fast_rnnt.h"
 
 namespace fast_rnnt {
-
-void PybindMutualInformation(py::module &m);
-
+void PybindUtils(py::module &m);
 } // namespace fast_rnnt
 
-#endif // FAST_RNNT_PYTHON_CSRC_MUTUAL_INFORMATION_H_
+#endif // FAST_RNNT_PYTHON_CSRC_UTILS_H_

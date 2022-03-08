@@ -16,7 +16,7 @@
 
 import os
 
-import k2
+import fast_rnnt
 import torch
 from torch import Tensor
 from typing import Optional, Tuple, Union
@@ -463,13 +463,13 @@ def _adjust_pruning_lower_bound(
     """
     # s_begin (B, T)
     (B, T) = s_begin.shape
-    s_begin = k2.monotonic_lower_bound(s_begin)
+    fast_rnnt.monotonic_lower_bound_(s_begin)
     # do the magic transformation
     s_begin = -(
         s_begin - (s_range - 1) * torch.arange(0, T, device=s_begin.device)
     )
     # make the transformed tensor to be non-decreasing
-    s_begin = k2.monotonic_lower_bound(s_begin)
+    fast_rnnt.monotonic_lower_bound_(s_begin)
     # make start symbol to be zero.
     s_begin = torch.where(s_begin < 0, 0, s_begin)
     # do the magic transformation again to recover s_begin
