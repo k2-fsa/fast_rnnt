@@ -18,6 +18,7 @@
  * limitations under the License.
  */
 
+#include <iostream>
 #include "fast_rnnt/csrc/mutual_information.h"
 
 namespace fast_rnnt {
@@ -241,11 +242,11 @@ MutualInformationBackwardCpu(torch::Tensor px, torch::Tensor py,
           if (ans_grad_a[b] != 0.0) {
             float grad_ratio = p_grad_a[b][s_begin][t_begin] / ans_grad_a[b];
             if (fabs(grad_ratio - 1.0) > 0.01) {
-              // K2_LOG(WARNING)
-              //<< "Warning: mutual_information backprop: expected these "
-              //<< "numbers to be the same:"
-              //<< static_cast<float>(p_grad_a[b][s_begin][t_begin]) << " vs "
-              //<< static_cast<float>(ans_grad_a[b]);
+              std::cout
+                  << "Warning: mutual_information backprop: expected these "
+                  << "numbers to be the same:"
+                  << static_cast<float>(p_grad_a[b][s_begin][t_begin]) << " vs "
+                  << static_cast<float>(ans_grad_a[b]);
             }
           }
         }

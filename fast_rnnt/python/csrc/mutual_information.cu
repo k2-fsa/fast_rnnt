@@ -18,6 +18,7 @@
  * limitations under the License.
  */
 
+#include "fast_rnnt/csrc/device_guard.h"
 #include "fast_rnnt/csrc/mutual_information.h"
 #include "fast_rnnt/python/csrc/mutual_information.h"
 
@@ -29,14 +30,15 @@ PYBIND11_MODULE(_fast_rnnt, m) {
       [](torch::Tensor px, torch::Tensor py,
          torch::optional<torch::Tensor> boundary,
          torch::Tensor p) -> torch::Tensor {
+        fast_rnnt::DeviceGuard guard(px.device());
         if (px.device().is_cpu()) {
           return fast_rnnt::MutualInformationCpu(px, py, boundary, p);
         } else {
 #ifdef FT_WITH_CUDA
           return fast_rnnt::MutualInformationCuda(px, py, boundary, p);
 #else
-          //K2_LOG(FATAL) << "Failed to find native CUDA module, make sure "
-                        //<< "that you compiled the code with K2_WITH_CUDA.";
+          TORCH_CHECK(false, "Failed to find native CUDA module, make sure "
+                             "that you compiled the code with K2_WITH_CUDA.");
           return torch::Tensor();
 #endif
         }
@@ -48,16 +50,17 @@ PYBIND11_MODULE(_fast_rnnt, m) {
       [](torch::Tensor px, torch::Tensor py,
          torch::optional<torch::Tensor> boundary, torch::Tensor p,
          torch::Tensor ans_grad) -> std::vector<torch::Tensor> {
+        fast_rnnt::DeviceGuard guard(px.device());
         if (px.device().is_cpu()) {
           return fast_rnnt::MutualInformationBackwardCpu(px, py, boundary, p,
-                                                  ans_grad);
+                                                         ans_grad);
         } else {
 #ifdef FT_WITH_CUDA
           return fast_rnnt::MutualInformationBackwardCuda(px, py, boundary, p,
-                                                   ans_grad, true);
+                                                          ans_grad, true);
 #else
-          //K2_LOG(FATAL) << "Failed to find native CUDA module, make sure "
-                        //<< "that you compiled the code with K2_WITH_CUDA.";
+          TORCH_CHECK(false, "Failed to find native CUDA module, make sure "
+                             "that you compiled the code with K2_WITH_CUDA.");
           return std::vector<torch::Tensor>();
 #endif
         }
