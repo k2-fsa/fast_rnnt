@@ -1,7 +1,7 @@
 include requirements.txt
-include pyproject.toml
+include README.md
 include LICENSE*
-recursive-include torch_mutual_information *
-recursive-include doc/img *
-recursive-include tests *
+include CMakeLists.txt
+recursive-include fast_rnnt *.*
+recursive-include cmake *.*
 global-exclude *.pyc

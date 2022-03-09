@@ -5,3 +5,6 @@ deploy*
 **/__pycache__
 **/build*
 Testing*
+dist/*
+*egg-info*/*
+
