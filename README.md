@@ -1,6 +1,8 @@
 
 This project implements a method for faster and more memory-efficient RNN-T computation, called `pruned rnnt`.
 
+Note: There is also a fast RNNT loss implementation in [k2](https://github.com/k2-fsa/k2) project, which shares the same code here. We make `fast_rnnt` a stand-alone project in case someone wants only this rnnt loss.
+
 ## How does the pruned-rnnt work ?
 
 We first obtain pruning bounds for the RNN-T recursion using a simple joiner network that is just an addition of the encoder and decoder, then we use those pruning bounds to evaluate the full, non-linear joiner network.
@@ -214,15 +216,15 @@ loss = fast_rnnt.rnnt_loss(
 
 ## Benchmarking
 
-The [repo](https://github.com/csukuangfj/transducer-loss-benchmarking) compares the speed
-and memory usage of several transducer losses, the summary in the following table is taken
-from there, you can check the repository for more details.
+The [repo](https://github.com/csukuangfj/transducer-loss-benchmarking) compares the speed and memory usage of several transducer losses, the summary in the following table is taken from there, you can check the repository for more details.
+
+Note: As we declare above, `fast_rnnt` also implements in [k2](https://github.com/k2-fsa/k2) project, so `k2` and `fast_rnnt` are equivalent in the benchmarking.
 
 |Name	               |Average step time (us) | Peak memory usage (MB)|
 |--------------------|-----------------------|-----------------------|
 |torchaudio          |601447                 |12959.2                |
-|k2                  |274407                 |15106.5                |
-|k2 pruned           |38112                  |2647.8                 |
+|fast_rnnt(unpruned) |274407                 |15106.5                |
+|fast_rnnt(pruned)   |38112                  |2647.8                 |
 |optimized_transducer|567684                 |10903.1                |
 |warprnnt_numba      |229340                 |13061.8                |
 |warp-transducer     |210772                 |13061.8                |
