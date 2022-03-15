@@ -113,6 +113,7 @@ setuptools.setup(
     },
     packages=[package_name],
     url="https://github.com/danpovey/fast_rnnt",
+    description="Fast and memory-efficient RNN-T loss.",
     long_description=read_long_description(),
     long_description_content_type="text/markdown",
     install_requires=get_requirements(),

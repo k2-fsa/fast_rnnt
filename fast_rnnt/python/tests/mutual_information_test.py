@@ -42,7 +42,7 @@ class TestMutualInformation(unittest.TestCase):
         cls.dtypes = [torch.float32, torch.float64]
 
     def test_mutual_information_basic(self):
-        for _iter in range(100):
+        for _iter in range(10):
             (B, S, T) = (
                 random.randint(1, 10),
                 random.randint(1, 16),
@@ -187,7 +187,7 @@ class TestMutualInformation(unittest.TestCase):
                     )
 
     def test_mutual_information_deriv(self):
-        for _iter in range(100):
+        for _iter in range(10):
             (B, S, T) = (
                 random.randint(1, 100),
                 random.randint(1, 200),
