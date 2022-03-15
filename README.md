@@ -1,7 +1,7 @@
 
-This project implements a method for faster and more memory-efficient RNN-T computation, called `pruned rnnt`.
+This project implements a method for faster and more memory-efficient RNN-T loss computation, called `pruned rnnt`.
 
-Note: There is also a fast RNNT loss implementation in [k2](https://github.com/k2-fsa/k2) project, which shares the same code here. We make `fast_rnnt` a stand-alone project in case someone wants only this rnnt loss.
+Note: There is also a fast RNN-T loss implementation in [k2](https://github.com/k2-fsa/k2) project, which shares the same code here. We make `fast_rnnt` a stand-alone project in case someone wants only this rnnt loss.
 
 ## How does the pruned-rnnt work ?
 
@@ -89,6 +89,8 @@ and describe your problem there.
 
 This is a simple case of the RNN-T loss, where the joiner network is just
 addition.
+
+Note: termination_symbol plays the role of blank in other RNN-T loss implementations, we call it termination_symbol as it terminates symbols of current frame.
 
 ```python
 am = torch.randn((B, T, C), dtype=torch.float32)
