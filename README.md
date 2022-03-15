@@ -218,7 +218,7 @@ loss = fast_rnnt.rnnt_loss(
 
 The [repo](https://github.com/csukuangfj/transducer-loss-benchmarking) compares the speed and memory usage of several transducer losses, the summary in the following table is taken from there, you can check the repository for more details.
 
-Note: As we declare above, `fast_rnnt` also implements in [k2](https://github.com/k2-fsa/k2) project, so `k2` and `fast_rnnt` are equivalent in the benchmarking.
+Note: As we declared above, `fast_rnnt` is also implemented in [k2](https://github.com/k2-fsa/k2) project, so `k2` and `fast_rnnt` are equivalent in the benchmarking.
 
 |Name	               |Average step time (us) | Peak memory usage (MB)|
 |--------------------|-----------------------|-----------------------|
