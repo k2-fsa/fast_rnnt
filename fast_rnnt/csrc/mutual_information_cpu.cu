@@ -25,7 +25,7 @@ namespace fast_rnnt {
 
 // forward of mutual_information.  See """... """ comment of
 // `mutual_information_recursion` in
-// in k2/python/k2/mutual_information.py for documentation of the
+// in python/fast_rnnt/mutual_information.py for documentation of the
 // behavior of this function.
 
 // px: of shape [B, S, T+1] if !modified, else [B, S, T]  <-- work out
