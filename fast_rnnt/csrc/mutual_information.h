@@ -73,7 +73,7 @@ FT_CUDA_HOSTDEV inline float LogAdd(float x, float y) {
         modified. `modified` can be worked out from this. In not-modified case,
         it can be thought of as the log-odds ratio of generating the next x in
         the sequence, i.e.
-        xy[b][s][t] is the log of
+        px[b][s][t] is the log of
           p(x_s | x_0..x_{s-1}, y_0..y_{s-1}) / p(x_s),
         i.e. the log-prob of generating x_s given subsequences of
         lengths (s, t), divided by the prior probability of generating x_s.
@@ -94,7 +94,7 @@ FT_CUDA_HOSTDEV inline float LogAdd(float x, float y) {
                  p[b,s,t] = log_add(p[b,s-1,t-1] + px[b,s-1,t-1],
                                    p[b,s,t-1] + py[b,s,t-1])
                ...     treating values with any -1 index as -infinity.
-               .. if `boundary` is set, we start fom p[b,s_begin,t_begin]=0.0.
+               .. if `boundary` is set, we start from p[b,s_begin,t_begin]=0.0.
     @param boundary  If set, a tensor of shape [B][4] of type int64_t, which
                      contains, where for each batch element b, boundary[b]
                      equals [s_begin, t_begin, s_end, t_end]
@@ -108,7 +108,7 @@ FT_CUDA_HOSTDEV inline float LogAdd(float x, float y) {
                and (boundary[b][2], boundary[b][3]) otherwise.
                `ans` represents the mutual information between each pair of
                sequences (i.e. x[b] and y[b], although the sequences are not
-               supplied directy to this function).
+               supplied directly to this function).
 
    The block-dim and grid-dim must both be 1-dimensional, and the block-dim must
    be at least 128.

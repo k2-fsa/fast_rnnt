@@ -43,7 +43,7 @@ namespace fast_rnnt {
       px:    Tensor of shape [B][S][T + 1], if !modified; [B][S][T] if modified;
              may be interpreted as the log-odds ratio of
              generating the next x in the sequence, i.e.
-             xy[b][s][t] is the log of
+             px[b][s][t] is the log of
                 p(x_s | x_0..x_{s-1}, y_0..y_{s-1}) / p(x_s),
              i.e. the log-prob of generating x_s given subsequences of lengths
              (s, t), divided by the prior probability of generating x_s.  (See
@@ -65,7 +65,7 @@ namespace fast_rnnt {
                                   p[b,s,t-1] + py[b,s,t-1])          (eq. 0)
 
              treating values with any -1 index as -infinity.
-              .. if `boundary` is set, we start fom p[b,s_begin,t_begin]=0.0.
+              .. if `boundary` is set, we start from p[b,s_begin,t_begin]=0.0.
    boundary:  If set, a tensor of shape [B][4] of type int64_t, which
               contains, where for each batch element b, boundary[b] equals
               [s_begin, t_begin, s_end, t_end]
@@ -79,7 +79,7 @@ namespace fast_rnnt {
             and (boundary[b][2], boundary[b][3]) otherwise.
             `ans` represents the mutual information between each pair of
             sequences (i.e. x[b] and y[b], although the sequences are not
-            supplied directy to this function).
+            supplied directly to this function).
 
    The block-dim and grid-dim must both be 1-dimensional, and the block-dim must
    be at least 128.
@@ -274,7 +274,7 @@ __global__ void mutual_information_kernel(
       // and (2, 1); and so on.  Note: not many threads participate in this
       // part, only up to BLOCK_SIZE at most.  Unfortunately we couldn't figure
       // out a very meaningful way for more threads to do work, that looked like
-      // it would really spead things up.
+      // it would really speed things up.
       // So this kernel does (2 * BLOCK_SIZE) iterations, which may seem a lot,
       // but we do at least do the I/O in an efficient way and keep the
       // inner loop simple and fast (e.g. no exp() or log()).
@@ -418,7 +418,7 @@ __global__ void mutual_information_backward_kernel(
               // be any sufficiently large number but will actually be:
               // num_s_blocks + num_t_blocks - 1 where num_s_blocks = S /
               // BLOCK_SIZE + 1 and num_t_blocks = T / BLOCK_SIZE + 1
-    bool overwrite_ans_grad) { // If overwite_ans_grad == true, this function
+    bool overwrite_ans_grad) { // If overwrite_ans_grad == true, this function
                                // will overwrite ans_grad with a value which,
                                // if everything is working correctly, should be
                                // identical or very close to the value of
@@ -554,7 +554,7 @@ __global__ void mutual_information_backward_kernel(
       // We can apply this formula to the entire block even if we are processing
       // a partial block; we have ensured that x_buf and y_buf contain
       // -infinity, and p contains 0, for out-of-range elements, so we'll get
-      // x_buf and y_buf containing 0 after applying the followin formulas.
+      // x_buf and y_buf containing 0 after applying the following formulas.
       int s = i / BLOCK_SIZE, t = i % BLOCK_SIZE;
       // Mathematically the following is doing:
       //  term1(b,s,t) = exp(p[b,s,t] + px[b,s,t] - p[b,s+1,t-t_offset])   (4a)

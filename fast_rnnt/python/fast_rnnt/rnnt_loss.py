@@ -1042,8 +1042,8 @@ def get_rnnt_logprobs_smoothed(
     py = py_am + py_lm - normalizers
 
     py_lm_unigram = unigram_lm[0][0][termination_symbol]  # scalar, normalized..
-    py_amonly = py_am + py_lm_unigram - amonly_normalizers  # [B][S+1][T]
-    py_lmonly = py_lm - lmonly_normalizers  # [B][S+1][T]
+    py_amonly = py_am + py_lm_unigram - amonly_normalizers  # [B][1][T]
+    py_lmonly = py_lm - lmonly_normalizers  # [B][S+1][1]
 
     combined_scale = 1.0 - lm_only_scale - am_only_scale
 

@@ -44,7 +44,7 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
             A torch.Tensor of some floating point type, with shape
             ``[B][S][T+1]`` where ``B`` is the batch size, ``S`` is the
             length of the ``x`` sequence (including representations of
-            ``EOS`` symbols but not ``BOS`` symbols), and ``S`` is the
+            ``EOS`` symbols but not ``BOS`` symbols), and ``T`` is the
             length of the ``y`` sequence (including representations of
             ``EOS`` symbols but not  ``BOS`` symbols).  In the mutual
             information application, ``px[b][s][t]`` would represent the
@@ -199,7 +199,7 @@ def mutual_information_recursion(
         A torch.Tensor of some floating point type, with shape ``[B][S][T+1]``,
         where ``B`` is the batch size, ``S`` is the length of the ``x`` sequence
         (including representations of ``EOS`` symbols but not ``BOS`` symbols),
-        and ``S`` is the length of the ``y`` sequence (including representations
+        and ``T`` is the length of the ``y`` sequence (including representations
         of ``EOS`` symbols but not ``BOS`` symbols).  In the mutual information
         application, ``px[b][s][t]`` would represent the following log odds
         ratio; ignoring the b index on the right to make the notation more
