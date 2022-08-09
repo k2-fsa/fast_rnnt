@@ -134,6 +134,8 @@ def get_rnnt_logprobs(
     (B, T, C) = am.shape
     S = lm.shape[1] - 1
     assert symbols.shape == (B, S)
+    assert S >= 1
+    assert T >= S
 
     # subtracting am_max and lm_max is to ensure the probs are in a good range
     # to do exp() without causing underflow or overflow.
@@ -331,6 +333,8 @@ def get_rnnt_logprobs_joint(
     (B, T, S1, C) = logits.shape
     S = S1 - 1
     assert symbols.shape == (B, S)
+    assert S >= 1
+    assert T >= S
 
     normalizers = torch.logsumexp(logits, dim=3)
     normalizers = normalizers.permute((0, 2, 1))
@@ -478,7 +482,9 @@ def _adjust_pruning_lower_bound(
     )
     return s_begin
 
-
+# To get more insight of how we calculate pruning bounds, please read
+# chapter 3.2 (Pruning bounds) of our Pruned RNN-T paper
+# (https://arxiv.org/pdf/2206.13236.pdf)
 def get_rnnt_prune_ranges(
     px_grad: torch.Tensor,
     py_grad: torch.Tensor,
@@ -505,8 +511,8 @@ def get_rnnt_prune_ranges(
     of symbols given a particular frame.
 
     Note:
-      For the generated tensor ranges, ranges[:, 0] is a monotonic increasing
-      tensor from 0 to `len(symbols)` and it satisfies
+      For the generated tensor ranges(assuming batch size is 1), ranges[:, 0]
+      is a monotonic increasing tensor from 0 to `len(symbols)` and it satisfies
       `ranges[t+1, 0] - ranges[t, 0] < s_range` which means we won't skip any
       symbols.
 
@@ -529,58 +535,78 @@ def get_rnnt_prune_ranges(
     (B, S, T1) = px_grad.shape
     T = py_grad.shape[-1]
     assert T1 in [T, T + 1]
+    S1 = S + 1
     assert py_grad.shape == (B, S + 1, T)
     assert boundary.shape == (B, 4)
-    assert s_range >= 1
+
+    assert S >= 1
+    assert T >= S
+
+    # s_range > S means we won't prune out any symbols. To make indexing with
+    # ranges runs normally, s_range should be equal to or less than ``S + 1``.
     if s_range > S:
-        s_range = S
+        s_range = S + 1
+
+    if T1 == T:
+        assert (
+            s_range >= 1
+        ), "Pruning range for modified RNN-T should be equal to or greater than 1, or no valid paths could survive pruning."
+
+    else:
+        assert (
+            s_range >= 2
+        ), "Pruning range for standard RNN-T should be equal to or greater than 2, or no valid paths could survive pruning."
+
+    (B_stride, S_stride, T_stride) = py_grad.stride()
+    blk_grad = torch.as_strided(
+        py_grad,
+        (B, S1 - s_range + 1, s_range, T),
+        (B_stride, S_stride, S_stride, T_stride),
+    )
+
+    # (B, S1 - s_range + 1, T)
+    blk_sum_grad = torch.sum(blk_grad, axis=2)
 
     px_pad = torch.zeros((B, 1, T1), dtype=px_grad.dtype, device=px_grad.device)
-    py_pad = torch.zeros(
-        (B, S + 1, 1), dtype=py_grad.dtype, device=py_grad.device
-    )
-    py_grad_padded = py_grad if T1 == T else torch.cat((py_grad, py_pad), dim=2)
-    tot_grad = (
-        torch.cat((px_grad, px_pad), dim=1) + py_grad_padded
-    )  # (B, S + 1, T1)
+    # (B, S1, T)
+    px_grad_pad = torch.cat((px_pad, px_grad), dim=1)
 
-    tot_grad = torch.cat(
-        (
-            torch.zeros(
-                (B, 1, T1), dtype=tot_grad.dtype, device=tot_grad.device
-            ),
-            tot_grad,
-        ),
-        dim=1,
-    )
-    tot_grad = torch.cumsum(tot_grad, dim=1)
-    diff_grad = tot_grad[:, s_range:, :] - tot_grad[:, 0:-s_range, :]
-    s_begin = torch.argmax(diff_grad, dim=1)
-    s_begin = s_begin[:, :T]
+    # (B, S1 - s_range + 1, T)
+    final_grad = blk_sum_grad - px_grad_pad[:, : S1 - s_range + 1, :T]
+
+    # (B, T)
+    s_begin = torch.argmax(final_grad, axis=1)
 
     # Handle the values of s_begin in padding positions.
-    # -1 here means we fill the position of the last frame of real data with
+    # -1 here means we fill the position of the last frame (before padding) with
     # padding value which is `len(symbols) - s_range + 1`.
-    # This is to guarantee that we reach the last symbol at last frame of real
-    # data.
+    # This is to guarantee that we reach the last symbol at last frame (before
+    # padding).
+    # The shape of the mask is (B, T), for example, we have a batch containing
+    # 3 sequences, their lengths are 3, 5, 6 (i.e. B = 3, T = 6), so the mask is
+    # [[True, True, False, False, False, False],
+    #  [True, True, True,  True,  False, False],
+    #  [True, True, True,  True,  True,  False]]
     mask = torch.arange(0, T, device=px_grad.device).reshape(1, T).expand(B, T)
     mask = mask < boundary[:, 3].reshape(B, 1) - 1
 
     s_begin_padding = boundary[:, 2].reshape(B, 1) - s_range + 1
     # handle the cases when `len(symbols) < s_range`
-    s_begin_padding = torch.where(s_begin_padding >= 0, s_begin_padding, 0)
+    s_begin_padding = torch.clamp(s_begin_padding, min=0)
 
     s_begin = torch.where(mask, s_begin, s_begin_padding)
 
     # adjusting lower bound to make it satisfied some constrains, see docs in
-    # `adjust_pruning_lower_bound` for more details of these constrains.
+    # `_adjust_pruning_lower_bound` for more details of these constrains.
     # T1 == T here means we are using the modified version of transducer,
     # the third constrain becomes `s_begin[i + 1] - s_begin[i] < 2`, because
     # it only emits one symbol per frame.
     s_begin = _adjust_pruning_lower_bound(s_begin, 2 if T1 == T else s_range)
+
     ranges = s_begin.reshape((B, T, 1)).expand((B, T, s_range)) + torch.arange(
         s_range, device=px_grad.device
     )
+
     return ranges
 
 
@@ -699,6 +725,8 @@ def get_rnnt_logprobs_pruned(
     (B, T, s_range, C) = logits.shape
     assert ranges.shape == (B, T, s_range)
     (B, S) = symbols.shape
+    assert S >= 1
+    assert T >= S
 
     normalizers = torch.logsumexp(logits, dim=3)
 
@@ -955,6 +983,8 @@ def get_rnnt_logprobs_smoothed(
     (B, T, C) = am.shape
     S = lm.shape[1] - 1
     assert symbols.shape == (B, S)
+    assert S >= 1
+    assert T >= S
 
     # Caution: some parts of this code are a little less clear than they could
     # be due to optimizations.  In particular it may not be totally obvious that
