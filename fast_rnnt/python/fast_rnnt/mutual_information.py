@@ -287,7 +287,7 @@ def mutual_information_recursion(
             assert 0 <= t_begin <= t_end <= T
 
     # The following statements are for efficiency
-    px, py = px.is_contiguous(), py.is_contiguous()
+    px, py = px.contiguous(), py.contiguous()
 
     pxy_grads = [None, None]
     scores = MutualInformationRecursionFunction.apply(px, py, pxy_grads,
