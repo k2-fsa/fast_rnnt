@@ -6,13 +6,11 @@ include(transform)
 set(fast_rnnt_srcs
   fast_rnnt.cu
   mutual_information.cu
-  utils.cu
 )
 
 if(NOT FT_WITH_CUDA)
   transform(OUTPUT_VARIABLE fast_rnnt_srcs SRCS ${fast_rnnt_srcs})
 endif()
-
 
 
 pybind11_add_module(_fast_rnnt ${fast_rnnt_srcs})

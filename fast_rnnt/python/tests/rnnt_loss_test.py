@@ -473,7 +473,7 @@ class TestRnntLoss(unittest.TestCase):
                     rnnt_type=rnnt_type,
                 )
 
-                print(f"Unpruned rnnt loss with {rnnt_loss} rnnt : {fast_loss}")
+                print(f"Unpruned rnnt loss with {rnnt_type} rnnt : {fast_loss}")
 
                 # pruning
                 simple_loss, (px_grad, py_grad) = fast_rnnt.rnnt_loss_simple(
@@ -578,7 +578,7 @@ class TestRnntLoss(unittest.TestCase):
                 )
 
                 S0 = 2
-                if rnnt_type == "regular":
+                if rnnt_type != "regular":
                     S0 = 1
 
                 for r in range(S0, S + 2):
