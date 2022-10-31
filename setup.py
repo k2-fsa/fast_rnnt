@@ -36,11 +36,10 @@ class BuildExtension(build_ext):
         system_make_args = os.environ.get("MAKEFLAGS", "")
 
         if cmake_args == "":
-            cmake_args = "-DCMAKE_BUILD_TYPE=Release"
+            cmake_args = "-DCMAKE_BUILD_TYPE=Release -DFT_BUILD_TESTS=OFF"
 
         if make_args == "" and system_make_args == "":
-            print("For fast compilation, run:")
-            print('export FT_MAKE_ARGS="-j"; python setup.py install')
+            make_args = ' -j '
 
         if "PYTHON_EXECUTABLE" not in cmake_args:
             print(f"Setting PYTHON_EXECUTABLE to {sys.executable}")

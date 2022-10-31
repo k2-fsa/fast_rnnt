@@ -1,4 +1,3 @@
-from _fast_rnnt import monotonic_lower_bound_
 from _fast_rnnt import with_cuda
 
 from .mutual_information import mutual_information_recursion

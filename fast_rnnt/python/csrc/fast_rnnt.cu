@@ -20,11 +20,9 @@
 
 #include "fast_rnnt/python/csrc/fast_rnnt.h"
 #include "fast_rnnt/python/csrc/mutual_information.h"
-#include "fast_rnnt/python/csrc/utils.h"
 
 PYBIND11_MODULE(_fast_rnnt, m) {
   m.doc() = "Python wrapper for Fast Rnnt.";
 
   fast_rnnt::PybindMutualInformation(m);
-  fast_rnnt::PybindUtils(m);
 }

@@ -46,7 +46,7 @@ message(STATUS "Enabled languages: ${languages}")
 
 project(fast_rnnt ${languages})
 
-set(FT_VERSION "1.0")
+set(FT_VERSION "1.2")
 
 set(ALLOWABLE_BUILD_TYPES Debug Release RelWithDebInfo MinSizeRel)
 set(DEFAULT_BUILD_TYPE "Release")
@@ -133,10 +133,6 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 include(pybind11)
 include(torch)
-if(FT_WITH_CUDA AND CUDA_VERSION VERSION_LESS 11.0)
-  # CUB is included in CUDA toolkit 11.0 and above
-  include(cub)
-endif()
 
 if(FT_BUILD_TESTS)
   enable_testing()

@@ -65,5 +65,13 @@ void PybindMutualInformation(py::module &m) {
       },
       py::arg("px"), py::arg("py"), py::arg("boundary"), py::arg("p"),
       py::arg("ans_grad"));
+
+  m.def("with_cuda", []() -> bool {
+#ifdef FT_WITH_CUDA
+    return true;
+#else
+    return false;
+#endif
+  });
 }
 } // namespace fast_rnnt
