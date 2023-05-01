@@ -13,6 +13,3 @@ from .rnnt_loss import rnnt_loss
 from .rnnt_loss import rnnt_loss_pruned
 from .rnnt_loss import rnnt_loss_simple
 from .rnnt_loss import rnnt_loss_smoothed
-
-
-__version__ = '1.2'
