@@ -609,6 +609,133 @@ class TestRnntLoss(unittest.TestCase):
                     )
                     print(f"Pruned loss with range {r} : {pruned_loss}")
 
+    # Check that training with an empty reference does not cause a crash.
+    def test_rnnt_loss_empty_reference(self):
+        B = 1
+        S = 0
+        T = 4
+        # C = 3
+        for device in self.devices:
+            # lm: [B][S+1][C]
+            lm = torch.tensor(
+                [[[0, 0, 1]]],
+                dtype=torch.float,
+                device=device,
+            )
+            # am: [B][T][C]
+            am = torch.tensor(
+                [[[0, 1, 2], [0, 0, 0], [0, 2, 4], [0, 3, 3]]],
+                dtype=torch.float,
+                device=device,
+            )
+            termination_symbol = 2
+            symbols = torch.tensor([[]], dtype=torch.long, device=device)
+
+            px, py = fast_rnnt.get_rnnt_logprobs(
+                lm=lm,
+                am=am,
+                symbols=symbols,
+                termination_symbol=termination_symbol,
+            )
+            assert px.shape == (B, S, T + 1)
+            assert py.shape == (B, S + 1, T)
+            assert symbols.shape == (B, S)
+            m = fast_rnnt.mutual_information_recursion(px=px, py=py, boundary=None)
+
+            if device == torch.device("cpu"):
+                expected = -m
+            assert torch.allclose(-m, expected.to(device))
+
+            # test rnnt_loss_simple
+            m = fast_rnnt.rnnt_loss_simple(
+                lm=lm,
+                am=am,
+                symbols=symbols,
+                termination_symbol=termination_symbol,
+                boundary=None,
+                reduction="none",
+            )
+            assert torch.allclose(m, expected.to(device))
+
+            # test rnnt_loss_smoothed
+            m = fast_rnnt.rnnt_loss_smoothed(
+                lm=lm,
+                am=am,
+                symbols=symbols,
+                termination_symbol=termination_symbol,
+                lm_only_scale=0.0,
+                am_only_scale=0.0,
+                boundary=None,
+                reduction="none",
+            )
+            assert torch.allclose(m, expected.to(device))
+
+            logits = am.unsqueeze(2) + lm.unsqueeze(1)
+
+            # test rnnt_loss
+            m = fast_rnnt.rnnt_loss(
+                logits=logits,
+                symbols=symbols,
+                termination_symbol=termination_symbol,
+                boundary=None,
+                reduction="none",
+            )
+            assert torch.allclose(m, expected.to(device))
+
+            # compare with torchaudio rnnt_loss
+            if self.has_torch_rnnt_loss:
+                import torchaudio.functional
+
+                m = torchaudio.functional.rnnt_loss(
+                    logits=logits,
+                    targets=symbols.int(),
+                    logit_lengths=torch.tensor(
+                        [T] * B, dtype=torch.int32, device=device
+                    ),
+                    target_lengths=torch.tensor(
+                        [S] * B, dtype=torch.int32, device=device
+                    ),
+                    blank=termination_symbol,
+                    reduction="none",
+                )
+                assert torch.allclose(m, expected.to(device))
+
+            # should be invariant to adding a constant for any frame.
+            lm += torch.randn(B, S + 1, 1, device=device)
+            am += torch.randn(B, T, 1, device=device)
+
+            m = fast_rnnt.rnnt_loss_simple(
+                lm=lm,
+                am=am,
+                symbols=symbols,
+                termination_symbol=termination_symbol,
+                boundary=None,
+                reduction="none",
+            )
+            assert torch.allclose(m, expected.to(device))
+
+            m = fast_rnnt.rnnt_loss_smoothed(
+                lm=lm,
+                am=am,
+                symbols=symbols,
+                termination_symbol=termination_symbol,
+                lm_only_scale=0.0,
+                am_only_scale=0.0,
+                boundary=None,
+                reduction="none",
+            )
+            assert torch.allclose(m, expected.to(device))
+
+            logits = am.unsqueeze(2) + lm.unsqueeze(1)
+            m = fast_rnnt.rnnt_loss(
+                logits=logits,
+                symbols=symbols,
+                termination_symbol=termination_symbol,
+                boundary=None,
+                reduction="none",
+            )
+            assert torch.allclose(m, expected.to(device))
+
 
 if __name__ == "__main__":
     unittest.main()

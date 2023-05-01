@@ -145,8 +145,10 @@ def get_rnnt_logprobs(
     (B, T, C) = am.shape
     S = lm.shape[1] - 1
     assert symbols.shape == (B, S), symbols.shape
-    assert S >= 1, S
-    assert T >= S, (T, S)
+    assert S >= 0, S
+    assert (
+        rnnt_type != "modified" or T >= S
+    ), f"Modified transducer requires T >= S, but got T={T} and S={S}"
     assert rnnt_type in ["regular", "modified", "constrained"], rnnt_type
 
     # subtracting am_max and lm_max is to ensure the probs are in a good range
@@ -391,8 +393,10 @@ def get_rnnt_logprobs_joint(
     (B, T, S1, C) = logits.shape
     S = S1 - 1
     assert symbols.shape == (B, S), symbols.shape
-    assert S >= 1, S
-    assert T >= S, (T, S)
+    assert S >= 0, S
+    assert (
+        rnnt_type != "modified" or T >= S
+    ), f"Modified transducer requires T >= S, but got T={T} and S={S}"
     assert rnnt_type in ["regular", "modified", "constrained"], rnnt_type
 
     normalizers = torch.logsumexp(logits, dim=3)
@@ -664,8 +668,7 @@ def get_rnnt_prune_ranges(
     assert py_grad.shape == (B, S + 1, T), py_grad.shape
     assert boundary.shape == (B, 4), boundary.shape
 
-    assert S >= 1, S
-    assert T >= S, (T, S)
+    assert S >= 0, S
 
     # s_range > S means we won't prune out any symbols. To make indexing with
     # ranges run normally, s_range should be equal to or less than ``S + 1``.
@@ -888,8 +891,10 @@ def get_rnnt_logprobs_pruned(
     (B, T, s_range, C) = logits.shape
     assert ranges.shape == (B, T, s_range), ranges.shape
     (B, S) = symbols.shape
-    assert S >= 1, S
-    assert T >= S, (T, S)
+    assert S >= 0, S
+    assert (
+        rnnt_type != "modified" or T >= S
+    ), f"Modified transducer requires T >= S, but got T={T} and S={S}"
     assert rnnt_type in ["regular", "modified", "constrained"], rnnt_type
 
     normalizers = torch.logsumexp(logits, dim=3)
@@ -1198,8 +1203,10 @@ def get_rnnt_logprobs_smoothed(
     (B, T, C) = am.shape
     S = lm.shape[1] - 1
     assert symbols.shape == (B, S), symbols.shape
-    assert S >= 1, S
-    assert T >= S, (T, S)
+    assert S >= 0, S
+    assert (
+        rnnt_type != "modified" or T >= S
+    ), f"Modified transducer requires T >= S, but got T={T} and S={S}"
     assert rnnt_type in ["regular", "modified", "constrained"], rnnt_type
 
     # Caution: some parts of this code are a little less clear than they could
