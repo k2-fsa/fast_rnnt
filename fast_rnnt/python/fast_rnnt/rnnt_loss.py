@@ -773,9 +773,9 @@ def do_rnnt_pruning(
         lm,
         dim=1,
         index=ranges.reshape(B, T * s_range, 1).expand(
-            (B, T * s_range, decoder_dim)
+            (B, T * s_range, C)
         ),
-    ).reshape(B, T, s_range, decoder_dim)
+    ).reshape(B, T, s_range, C)
     return am_pruning, lm_pruning
 
 
