@@ -770,10 +770,12 @@ def do_rnnt_pruning(
 
     # (B, T, s_range, C)
     lm_pruning = torch.gather(
-        lm.unsqueeze(1).expand((B, T, S + 1, C)),
-        dim=2,
-        index=ranges.reshape((B, T, s_range, 1)).expand((B, T, s_range, C)),
-    )
+        lm,
+        dim=1,
+        index=ranges.reshape(B, T * s_range, 1).expand(
+            (B, T * s_range, C)
+        ),
+    ).reshape(B, T, s_range, C)
     return am_pruning, lm_pruning
 
 
