@@ -435,6 +435,7 @@ def rnnt_loss(
     rnnt_type: str = "regular",
     delay_penalty: float = 0.0,
     reduction: Optional[str] = "mean",
+    return_grad: bool = False,
 ) -> Tensor:
     """A normal RNN-T loss, which uses a 'joiner' network output as input,
     i.e. a 4 dimensions tensor.
@@ -505,17 +506,21 @@ def rnnt_loss(
         penalty = penalty * delay_penalty
         px += penalty.to(px.dtype)
 
-    negated_loss = mutual_information_recursion(px=px, py=py, boundary=boundary)
+    scores_and_grads = mutual_information_recursion(
+        px=px, py=py, boundary=boundary, return_grad=return_grad
+    )
+    negated_loss = scores_and_grads[0] if return_grad else scores_and_grads
     if reduction == "none":
-        return -negated_loss
+        loss = -negated_loss
     elif reduction == "mean":
-        return -torch.mean(negated_loss)
+        loss = -torch.mean(negated_loss)
     elif reduction == "sum":
-        return -torch.sum(negated_loss)
+        loss = -torch.sum(negated_loss)
     else:
         raise ValueError(
             f"reduction should be ('none' | 'mean' | 'sum'), given {reduction}"
         )
+    return (loss, scores_and_grads[1]) if return_grad else loss
 
 
 def _monotonic_lower_bound(x: torch.Tensor) -> torch.Tensor:
@@ -886,7 +891,7 @@ def get_rnnt_logprobs_pruned(
     # ranges (B, T, s_range)
     assert logits.ndim == 4, logits.ndim
     (B, T, s_range, C) = logits.shape
-    assert ranges.shape == (B, T, s_range), ranges.shape
+    assert ranges.shape == (B, T, s_range), f"{ranges.shape} == ({B}, {T}, {s_range})"
     (B, S) = symbols.shape
     assert S >= 1, S
     assert T >= S, (T, S)
@@ -988,6 +993,7 @@ def rnnt_loss_pruned(
     rnnt_type: str = "regular",
     delay_penalty: float = 0.0,
     reduction: Optional[str] = "mean",
+    return_grad: bool = False,
 ) -> Tensor:
     """A RNN-T loss with pruning, which uses the output of a pruned 'joiner'
     network as input, i.e. a 4 dimensions tensor with shape (B, T, s_range, C),
@@ -1067,17 +1073,21 @@ def rnnt_loss_pruned(
         penalty = penalty * delay_penalty
         px += penalty.to(px.dtype)
 
-    negated_loss = mutual_information_recursion(px=px, py=py, boundary=boundary)
+    scores_and_grads = mutual_information_recursion(
+        px=px, py=py, boundary=boundary, return_grad=return_grad
+    )
+    negated_loss = scores_and_grads[0] if return_grad else scores_and_grads
     if reduction == "none":
-        return -negated_loss
+        loss = -negated_loss
     elif reduction == "mean":
-        return -torch.mean(negated_loss)
+        loss = -torch.mean(negated_loss)
     elif reduction == "sum":
-        return -torch.sum(negated_loss)
+        loss = -torch.sum(negated_loss)
     else:
         raise ValueError(
             f"reduction should be ('none' | 'mean' | 'sum'), given {reduction}"
         )
+    return (loss, scores_and_grads[1]) if return_grad else loss
 
 
 def get_rnnt_logprobs_smoothed(
