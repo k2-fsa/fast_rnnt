@@ -49,8 +49,7 @@ jobs:
         os: [ubuntu-latest]
         cuda: ["11.7"]
         torch: ["1.13.1"]
-        torchaudio: ["1.13.0"]
-        python-version: ["3.11"]
+        python-version: ["3.9"]
         build_type: ["Release", "Debug"]
 
     steps:

@@ -66,4 +66,4 @@ jobs:
         shell: bash
         working-directory: ${{github.workspace}}
         run: |
-          black -l 80 --check --diff .
+          black --check --diff .
