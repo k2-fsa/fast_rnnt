@@ -390,7 +390,9 @@ def joint_mutual_information_recursion(
     p = torch.empty(B, S + 1, T + 1, device=px_tot.device, dtype=px_tot.dtype)
 
     # note, tot_probs is without grad.
-    tot_probs = _fast_rnnt.mutual_information_forward(px_tot, py_tot, boundary, p)
+    tot_probs = _fast_rnnt.mutual_information_forward(
+        px_tot, py_tot, boundary, p
+    )
 
     # this is a kind of "fake gradient" that we use, in effect to compute
     # occupation probabilities.  The backprop will work regardless of the
