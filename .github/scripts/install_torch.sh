@@ -14,8 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-torch=$TORCH_VERSION
-cuda=$CUDA_VERSION
+echo "torch version: $torch"
+echo "cuda version: $cuda"
+
 case ${torch} in
   1.5.*)
     case ${cuda} in

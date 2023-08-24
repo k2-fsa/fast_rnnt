@@ -47,10 +47,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        cuda: ["11.7"]
-        torch: ["1.13.1"]
-        torchaudio: ["1.13.0"]
-        python-version: ["3.11"]
+        cuda: ["11.6"]
+        torch: ["1.12.1"]
+        python-version: ["3.9"]
         build_type: ["Release", "Debug"]
 
     steps:
@@ -103,7 +102,7 @@ jobs:
         env:
           cuda: ${{ matrix.cuda }}
         run: |
-          ./scripts/github_actions/install_cudnn.sh
+          ./.github/scripts/install_cudnn.sh
 
       - name: Configure CMake
         shell: bash

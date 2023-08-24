@@ -39,7 +39,7 @@ class BuildExtension(build_ext):
             cmake_args = "-DCMAKE_BUILD_TYPE=Release -DFT_BUILD_TESTS=OFF"
 
         if make_args == "" and system_make_args == "":
-            make_args = ' -j '
+            make_args = " -j "
 
         if "PYTHON_EXECUTABLE" not in cmake_args:
             print(f"Setting PYTHON_EXECUTABLE to {sys.executable}")
@@ -89,17 +89,17 @@ def get_package_version():
     latest_version = latest_version.strip('"')
     return latest_version
 
+
 def get_requirements():
     with open("requirements.txt", encoding="utf8") as f:
         requirements = f.read().splitlines()
 
     return requirements
 
+
 package_name = "fast_rnnt"
 
-with open(
-    "fast_rnnt/python/fast_rnnt/__init__.py", "a"
-) as f:
+with open("fast_rnnt/python/fast_rnnt/__init__.py", "a") as f:
     f.write(f"__version__ = '{get_package_version()}'\n")
 
 setuptools.setup(
