@@ -49,8 +49,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        torch: ["1.13.1"]
-        torchaudio: ["0.13.1"]
+        torch: ["1.12.1"]
+        torchaudio: ["0.12.1"]
         python-version: ["3.11"]
         build_type: ["Release", "Debug"]
 
@@ -81,7 +81,7 @@ jobs:
         run: |
           python3 -m pip install -qq --upgrade pip
           python3 -m pip install -qq torch==${{ matrix.torch }}+cpu -f https://download.pytorch.org/whl/torch_stable.html
-          python3 -m pip install -qq torchaudio==${{ matrix.torchaudio }}+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
+          python3 -m pip install -qq torchaudio==${{ matrix.torchaudio }} -f https://download.pytorch.org/whl/cpu/torch_stable.html
           python3 -c "import torch; print('torch version:', torch.__version__)"
 
           python3 -m torch.utils.collect_env
@@ -92,7 +92,7 @@ jobs:
         run: |
           python3 -m pip install -qq --upgrade pip
           python3 -m pip install -qq torch==${{ matrix.torch }}
-          python3 -m pip install -qq torch==${{ matrix.torchaudio }}
+          python3 -m pip install -qq torchaudio==${{ matrix.torchaudio }}
           python3 -c "import torch; print('torch version:', torch.__version__)"
 
           python3 -m torch.utils.collect_env
