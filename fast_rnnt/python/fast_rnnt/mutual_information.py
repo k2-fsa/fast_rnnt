@@ -160,7 +160,8 @@ class MutualInformationRecursionFunction(torch.autograd.Function):
         if return_grad or px.requires_grad or py.requires_grad:
             ans_grad = torch.ones(B, device=px.device, dtype=px.dtype)
             (px_grad, py_grad) = _fast_rnnt.mutual_information_backward(
-                px, py, boundary, p, ans_grad)
+                px, py, boundary, p, ans_grad
+            )
             ctx.save_for_backward(px_grad, py_grad)
         assert len(pxy_grads) == 2
         pxy_grads[0] = px_grad
@@ -290,8 +291,9 @@ def mutual_information_recursion(
     px, py = px.contiguous(), py.contiguous()
 
     pxy_grads = [None, None]
-    scores = MutualInformationRecursionFunction.apply(px, py, pxy_grads,
-                                                      boundary, return_grad)
+    scores = MutualInformationRecursionFunction.apply(
+        px, py, pxy_grads, boundary, return_grad
+    )
     px_grad, py_grad = pxy_grads
     return (scores, (px_grad, py_grad)) if return_grad else scores
 
@@ -388,16 +390,18 @@ def joint_mutual_information_recursion(
     p = torch.empty(B, S + 1, T + 1, device=px_tot.device, dtype=px_tot.dtype)
 
     # note, tot_probs is without grad.
-    tot_probs = _fast_rnnt.mutual_information_forward(px_tot, py_tot, boundary, p)
+    tot_probs = _fast_rnnt.mutual_information_forward(
+        px_tot, py_tot, boundary, p
+    )
 
     # this is a kind of "fake gradient" that we use, in effect to compute
     # occupation probabilities.  The backprop will work regardless of the
     # actual derivative w.r.t. the total probs.
     ans_grad = torch.ones(B, device=px_tot.device, dtype=px_tot.dtype)
 
-    (px_grad,
-     py_grad) = _fast_rnnt.mutual_information_backward(px_tot, py_tot, boundary, p,
-                                                ans_grad)
+    (px_grad, py_grad) = _fast_rnnt.mutual_information_backward(
+        px_tot, py_tot, boundary, p, ans_grad
+    )
 
     px_grad = px_grad.reshape(1, B, -1)
     py_grad = py_grad.reshape(1, B, -1)
