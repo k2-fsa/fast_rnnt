@@ -102,7 +102,7 @@ jobs:
         env:
           cuda: ${{ matrix.cuda }}
         run: |
-          ./scripts/github_actions/install_cudnn.sh
+          ./.github/scripts/install_cudnn.sh
 
       - name: Configure CMake
         shell: bash
