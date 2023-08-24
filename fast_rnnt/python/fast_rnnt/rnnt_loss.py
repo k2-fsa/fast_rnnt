@@ -187,7 +187,7 @@ def get_rnnt_logprobs(
         am.transpose(1, 2),  # (B, C, T)
         dim=1,
         index=symbols.unsqueeze(2).expand(B, S, T),
-    ) #  (B, S, T)
+    )  #  (B, S, T)
 
     if rnnt_type == "regular":
         px_am = torch.cat(
@@ -308,7 +308,9 @@ def rnnt_loss_simple(
         T = T0 if rnnt_type != "regular" else T0 - 1
         if boundary is None:
             offset = torch.tensor(
-                (T - 1) / 2, dtype=px.dtype, device=px.device,
+                (T - 1) / 2,
+                dtype=px.dtype,
+                device=px.device,
             ).expand(B, 1, 1)
         else:
             offset = (boundary[:, 3] - 1) / 2
@@ -513,7 +515,9 @@ def rnnt_loss(
         T = T0 if rnnt_type != "regular" else T0 - 1
         if boundary is None:
             offset = torch.tensor(
-                (T - 1) / 2, dtype=px.dtype, device=px.device,
+                (T - 1) / 2,
+                dtype=px.dtype,
+                device=px.device,
             ).expand(B, 1, 1)
         else:
             offset = (boundary[:, 3] - 1) / 2
@@ -805,9 +809,7 @@ def do_rnnt_pruning(
     lm_pruning = torch.gather(
         lm,
         dim=1,
-        index=ranges.reshape(B, T * s_range, 1).expand(
-            (B, T * s_range, C)
-        ),
+        index=ranges.reshape(B, T * s_range, 1).expand((B, T * s_range, C)),
     ).reshape(B, T, s_range, C)
     return am_pruning, lm_pruning
 
@@ -1093,7 +1095,9 @@ def rnnt_loss_pruned(
         T = T0 if rnnt_type != "regular" else T0 - 1
         if boundary is None:
             offset = torch.tensor(
-                (T - 1) / 2, dtype=px.dtype, device=px.device,
+                (T - 1) / 2,
+                dtype=px.dtype,
+                device=px.device,
             ).expand(B, 1, 1)
         else:
             offset = (boundary[:, 3] - 1) / 2
@@ -1288,7 +1292,7 @@ def get_rnnt_logprobs_smoothed(
         am.transpose(1, 2),  # (B, C, T)
         dim=1,
         index=symbols.unsqueeze(2).expand(B, S, T),
-    ) #  (B, S, T)
+    )  #  (B, S, T)
 
     if rnnt_type == "regular":
         px_am = torch.cat(
@@ -1453,7 +1457,9 @@ def rnnt_loss_smoothed(
         T = T0 if rnnt_type != "regular" else T0 - 1
         if boundary is None:
             offset = torch.tensor(
-                (T - 1) / 2, dtype=px.dtype, device=px.device,
+                (T - 1) / 2,
+                dtype=px.dtype,
+                device=px.device,
             ).expand(B, 1, 1)
         else:
             offset = (boundary[:, 3] - 1) / 2
