@@ -14,8 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-torch=$TORCH_VERSION
-cuda=$CUDA_VERSION
+echo "torch version: $torch"
+echo "cuda version: $cuda"
+
 case ${torch} in
   1.5.*)
     case ${cuda} in
@@ -127,7 +128,7 @@ case ${torch} in
         ;;
     esac
     ;;
-  1.12.1)
+  1.12.*)
     case ${cuda} in
       10.2)
         package="torch==${torch}"
