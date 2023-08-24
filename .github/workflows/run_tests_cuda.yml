@@ -47,8 +47,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        cuda: ["11.7"]
-        torch: ["1.13.1"]
+        cuda: ["11.6"]
+        torch: ["1.12.1"]
         python-version: ["3.9"]
         build_type: ["Release", "Debug"]
 
