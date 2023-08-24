@@ -64,12 +64,8 @@ class TestMutualInformation(unittest.TestCase):
                     if random_boundary:
 
                         def get_boundary_row():
-                            this_S = random.randint(
-                                0, S
-                            )  # allow empty sequence
-                            this_T = random.randint(
-                                this_S if modified else 1, T
-                            )
+                            this_S = random.randint(0, S)  # allow empty sequence
+                            this_T = random.randint(this_S if modified else 1, T)
                             s_begin = random.randint(0, S - this_S)
                             t_begin = random.randint(0, T - this_T)
                             s_end = s_begin + this_S
@@ -118,14 +114,10 @@ class TestMutualInformation(unittest.TestCase):
                             px += 15.0
                         if random_py:
                             # log of an odds ratio
-                            py = torch.randn(B, S + 1, T, dtype=dtype).to(
-                                device
-                            )
+                            py = torch.randn(B, S + 1, T, dtype=dtype).to(device)
                         else:
                             # log of an odds ratio
-                            py = torch.zeros(B, S + 1, T, dtype=dtype).to(
-                                device
-                            )
+                            py = torch.zeros(B, S + 1, T, dtype=dtype).to(device)
                         if big_py:
                             py += 15.0
 
@@ -206,14 +198,11 @@ class TestMutualInformation(unittest.TestCase):
 
             for dtype in self.dtypes:
                 for device in self.devices:
-
                     if random_boundary:
 
                         def get_boundary_row():
                             this_S = random.randint(1, S)
-                            this_T = random.randint(
-                                this_S if modified else 1, T
-                            )
+                            this_T = random.randint(this_S if modified else 1, T)
                             s_begin = random.randint(0, S - this_S)
                             t_begin = random.randint(0, T - this_T)
                             s_end = s_begin + this_S
@@ -257,14 +246,10 @@ class TestMutualInformation(unittest.TestCase):
                             px += 15.0
                         if random_py:
                             # log of an odds ratio
-                            py = torch.randn(B, S + 1, T, dtype=dtype).to(
-                                device
-                            )
+                            py = torch.randn(B, S + 1, T, dtype=dtype).to(device)
                         else:
                             # log of an odds ratio
-                            py = torch.zeros(B, S + 1, T, dtype=dtype).to(
-                                device
-                            )
+                            py = torch.zeros(B, S + 1, T, dtype=dtype).to(device)
                         if big_py:
                             py += 15.0
                     else:

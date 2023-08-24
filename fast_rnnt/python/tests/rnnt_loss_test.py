@@ -90,9 +90,7 @@ class TestRnntLoss(unittest.TestCase):
             assert px.shape == (B, S, T + 1)
             assert py.shape == (B, S + 1, T)
             assert symbols.shape == (B, S)
-            m = fast_rnnt.mutual_information_recursion(
-                px=px, py=py, boundary=None
-            )
+            m = fast_rnnt.mutual_information_recursion(px=px, py=py, boundary=None)
 
             if device == torch.device("cpu"):
                 expected = -m
@@ -225,9 +223,7 @@ class TestRnntLoss(unittest.TestCase):
                     rnnt_type=rnnt_type,
                 )
                 assert (
-                    px.shape == (B, S, T)
-                    if rnnt_type != "regular"
-                    else (B, S, T + 1)
+                    px.shape == (B, S, T) if rnnt_type != "regular" else (B, S, T + 1)
                 )
                 assert py.shape == (B, S + 1, T)
                 assert symbols.shape == (B, S)
@@ -343,7 +339,6 @@ class TestRnntLoss(unittest.TestCase):
             boundary_[:, 3] = frames
 
             for device in self.devices:
-
                 # lm: [B][S+1][C]
                 lm = lm_.to(device)
                 # am: [B][T][C]
@@ -374,13 +369,9 @@ class TestRnntLoss(unittest.TestCase):
                 torch_grad = torch.autograd.grad(torch_loss, logits2)
                 torch_grad = torch_grad[0]
 
-                assert torch.allclose(
-                    fast_loss, torch_loss, atol=1e-2, rtol=1e-2
-                )
+                assert torch.allclose(fast_loss, torch_loss, atol=1e-2, rtol=1e-2)
 
-                assert torch.allclose(
-                    fast_grad, torch_grad, atol=1e-2, rtol=1e-2
-                )
+                assert torch.allclose(fast_grad, torch_grad, atol=1e-2, rtol=1e-2)
 
     def test_rnnt_loss_smoothed(self):
         B = 1
