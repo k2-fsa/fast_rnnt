@@ -1,0 +1,124 @@
+# Copyright      2023  Xiaomi Corp. (Wei Kang) 
+
+# See ../../LICENSE for clarification regarding multiple authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# refer to https://github.com/actions/starter-workflows/pull/47/files
+
+name: run-tests-cpu
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/run_tests_cpu.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'fast_rnnt/csrc/**'
+      - 'fast_rnnt/python/**'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/run_tests_cpu.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - 'fast_rnnt/csrc/**'
+      - 'fast_rnnt/python/**'
+
+concurrency:
+  group: run-tests-cpu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-tests-cpu:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        torch: ["1.13.1"]
+        torchaudio: ["0.13.1"]
+        python-version: ["3.11"]
+        build_type: ["Release", "Debug"]
+
+    steps:
+      # refer to https://github.com/actions/checkout
+      - uses: actions/checkout@v2
+
+      - name: Display GCC version
+        run: |
+          gcc --version
+
+      - name: Display clang version
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          clang --version
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Display Python version
+        run: python -c "import sys; print(sys.version)"
+
+      - name: Install PyTorch ${{ matrix.torch }}
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: |
+          python3 -m pip install -qq --upgrade pip
+          python3 -m pip install -qq torch==${{ matrix.torch }}+cpu -f https://download.pytorch.org/whl/torch_stable.html
+          python3 -m pip install -qq torchaudio==${{ matrix.torchaudio }}+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html
+          python3 -c "import torch; print('torch version:', torch.__version__)"
+
+          python3 -m torch.utils.collect_env
+
+      - name: Install PyTorch ${{ matrix.torch }}
+        if: startsWith(matrix.os, 'macos')
+        shell: bash
+        run: |
+          python3 -m pip install -qq --upgrade pip
+          python3 -m pip install -qq torch==${{ matrix.torch }}
+          python3 -m pip install -qq torch==${{ matrix.torchaudio }}
+          python3 -c "import torch; print('torch version:', torch.__version__)"
+
+          python3 -m torch.utils.collect_env
+
+      - name: Configure CMake
+        shell: bash
+        env:
+          torch: ${{ matrix.torch }}
+        run: |
+          mkdir build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DFT_WITH_CUDA=OFF ..
+
+      - name: ${{ matrix.build_type }} Build
+        shell: bash
+        run: |
+          cd build
+          make -j2 VERBOSE=1
+
+      - name: Display Build Information
+        shell: bash
+        run: |
+          export PYTHONPATH=$PWD/fast_rnnt/python:$PWD/build/lib:$PYTHONPATH
+
+      - name: Run Tests
+        shell: bash
+        run: |
+          cd build
+          ctest --output-on-failure
