@@ -694,12 +694,13 @@ def get_rnnt_prune_ranges(
 
     validate_st_lengths(S, T, is_regular, boundary)
 
-    # adjust s_range if S >> T in regular case
+    # in regular case s_range should be no less than
+    # a minimum integer satisfying `(s_range - 1) * t + 1 >= s + 1`
     if is_regular:
         Ss = boundary[:, 2]
         Ts = boundary[:, 3]
         s_range_min = (
-            (Ss - 2).div(Ts, rounding_mode="trunc").add(3).max().item()
+            Ss.sub(1).div(Ts, rounding_mode="trunc").add(2).max().item()
         )
         if s_range < s_range_min:
             print(
