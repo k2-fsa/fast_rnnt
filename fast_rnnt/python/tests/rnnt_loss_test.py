@@ -343,7 +343,6 @@ class TestRnntLoss(unittest.TestCase):
             boundary_[:, 3] = frames
 
             for device in self.devices:
-
                 # lm: [B][S+1][C]
                 lm = lm_.to(device)
                 # am: [B][T][C]
@@ -607,6 +606,102 @@ class TestRnntLoss(unittest.TestCase):
                         rnnt_type=rnnt_type,
                         reduction="none",
                     )
+                    print(f"Pruned loss with range {r} : {pruned_loss}")
+
+    # Test low s_range values with large S and small T,
+    # at this circumstance, the s_range would not be enough
+    # to cover the whole sequence length (in regular rnnt mode)
+    # and would result in inf loss
+    def test_rnnt_loss_pruned_small_s_range(self):
+        B = 2
+        T = 2
+        S = 10
+        C = 10
+
+        frames = torch.randint(1, T, (B,))
+        seq_lengths = torch.randint(1, S, (B,))
+        T = torch.max(frames)
+        S = torch.max(seq_lengths)
+
+        am_ = torch.randn((B, T, C), dtype=torch.float64)
+        lm_ = torch.randn((B, S + 1, C), dtype=torch.float64)
+        symbols_ = torch.randint(0, C, (B, S))
+        terminal_symbol = C - 1
+
+        boundary_ = torch.zeros((B, 4), dtype=torch.int64)
+        boundary_[:, 2] = seq_lengths
+        boundary_[:, 3] = frames
+
+        print(f"B = {B}, T = {T}, S = {S}, C = {C}")
+
+        for rnnt_type in ["regular"]:
+            for device in self.devices:
+                # normal rnnt
+                am = am_.to(device)
+                lm = lm_.to(device)
+                symbols = symbols_.to(device)
+                boundary = boundary_.to(device)
+
+                logits = am.unsqueeze(2) + lm.unsqueeze(1)
+                logits = logits.float()
+
+                # nonlinear transform
+                logits = torch.sigmoid(logits)
+
+                loss = fast_rnnt.rnnt_loss(
+                    logits=logits,
+                    symbols=symbols,
+                    termination_symbol=terminal_symbol,
+                    boundary=boundary,
+                    rnnt_type=rnnt_type,
+                    reduction="none",
+                )
+
+                print(f"Unpruned rnnt loss with {rnnt_type} rnnt : {loss}")
+
+                # pruning
+                simple_loss, (px_grad, py_grad) = fast_rnnt.rnnt_loss_simple(
+                    lm=lm,
+                    am=am,
+                    symbols=symbols,
+                    termination_symbol=terminal_symbol,
+                    boundary=boundary,
+                    rnnt_type=rnnt_type,
+                    return_grad=True,
+                    reduction="none",
+                )
+
+                S0 = 2
+
+                for r in range(S0, S + 2):
+                    ranges = fast_rnnt.get_rnnt_prune_ranges(
+                        px_grad=px_grad,
+                        py_grad=py_grad,
+                        boundary=boundary,
+                        s_range=r,
+                    )
+                    # (B, T, r, C)
+                    pruned_am, pruned_lm = fast_rnnt.do_rnnt_pruning(
+                        am=am, lm=lm, ranges=ranges
+                    )
+
+                    logits = pruned_am + pruned_lm
+
+                    # nonlinear transform
+                    logits = torch.sigmoid(logits)
+
+                    pruned_loss = fast_rnnt.rnnt_loss_pruned(
+                        logits=logits,
+                        symbols=symbols,
+                        ranges=ranges,
+                        termination_symbol=terminal_symbol,
+                        boundary=boundary,
+                        rnnt_type=rnnt_type,
+                        reduction="none",
+                    )
+                    assert (
+                        not pruned_loss.isinf().any()
+                    ), f"Pruned loss is inf for r={r}, S={S}, T={T}: {pruned_loss}"
                     print(f"Pruned loss with range {r} : {pruned_loss}")
 
 

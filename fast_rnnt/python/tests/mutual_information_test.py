@@ -206,7 +206,6 @@ class TestMutualInformation(unittest.TestCase):
 
             for dtype in self.dtypes:
                 for device in self.devices:
-
                     if random_boundary:
 
                         def get_boundary_row():
